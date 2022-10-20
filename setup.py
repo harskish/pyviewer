@@ -12,6 +12,8 @@ setup(name='pyviewer',
     packages=['pyviewer'], # name of importable thing
     package_requires=[
         'imgui[glfw]',
+        'glfw',
+        'numpy',
     ],
     #dependency_links=[
     #    'https://github.com/harskish/imviz/tree/prs#egg=package-1.0'

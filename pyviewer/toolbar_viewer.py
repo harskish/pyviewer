@@ -223,20 +223,23 @@ class ToolbarViewer:
 #-----------------------------------------------------------------------------
 # Example usage
 
-if __name__ == '__main__':
-    import torch
+def main():
+    import numpy as np
     
     class Test(ToolbarViewer):
         def setup_state(self):
             self.state.seed = 0
         
         def compute(self):
-            torch.manual_seed(self.state.seed)
-            img = torch.randn((256, 256, 3), dtype=torch.float32, device='cuda')
-            return img.clip(0, 1) # HWC
+            rand = np.random.RandomState(seed=self.state.seed)
+            img = rand.randn(256, 256, 3).astype(np.float32)
+            return np.clip(img, 0, 1) # HWC
         
         def draw_toolbar(self):
             self.state.seed = imgui.slider_int('Seed', self.state.seed, 0, 1000)[1]
 
-    viewer = Test('test_viewer')
+    _ = Test('test_viewer')
     print('Done')
+
+if __name__ == '__main__':
+    main()
