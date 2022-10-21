@@ -12,6 +12,7 @@ from sys import platform
 from contextlib import contextmanager, nullcontext
 
 import imgui.core
+import imgui.plot as implot
 from imgui.integrations.glfw import GlfwRenderer
 from .imgui_themes import theme_dark_overshifted, theme_deep_dark, theme_ps, theme_contrast
 
@@ -245,8 +246,11 @@ class viewer:
         glfw.swap_interval(swap_interval) # should increase on high refresh rate monitors
         glfw.make_context_current(None)
 
-        # TERO
         self._imgui_context = imgui.create_context()
+        self._implot_context = implot.create_context()
+        implot.set_imgui_context(self._imgui_context)
+        #implot.get_style().anti_aliased_lines = True # turn global AA on
+
         font = self.get_default_font()
 
         # MPLUSRounded1c-Medium.tff: no content for sizes >35
@@ -446,7 +450,7 @@ class viewer:
             with self.lock(strict=False) as l:
                 if l == nullcontext:
                     continue
-            
+
                 # Breaks on MacOS. Needed?
                 #imgui.get_io().display_size = glfw.get_framebuffer_size(self._window)
                 
