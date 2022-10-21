@@ -9,7 +9,7 @@ from urllib.request import urlretrieve
 from threading import get_ident
 import os
 from sys import platform
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 import imgui.core
 from imgui.integrations.glfw import GlfwRenderer
@@ -273,7 +273,7 @@ class viewer:
             self._cuda_context.pop()
 
     @contextmanager
-    def lock(self):
+    def lock(self, strict=True):
         # Prevent double locks, e.g. when
         # calling upload_image() from UI thread
         tid = get_ident()
@@ -281,14 +281,23 @@ class viewer:
             yield self._context_lock
             return
         
+        context_manager = None
+        
         try:
             self._context_lock.acquire()
             self._context_tid = tid
             glfw.make_context_current(self._window)
-            yield self._context_lock
-        except Exception as e:
-            print(str(e))
+            context_manager = self._context_lock
+        except glfw.GLFWError as e:
+            reason = {65544: 'No monitor found'}.get(e.error_code, 'unknown')
+            print(f'{str(e)} (code 0x{e.error_code:x}: "{reason}")')
+            context_manager = nullcontext
+            if strict:
+                raise e
         finally:
+            yield context_manager
+
+            # Cleanup after caller is done
             glfw.make_context_current(None)
             self._context_tid = None
             self._context_lock.release()
@@ -434,7 +443,9 @@ class viewer:
             if self.keyhit(glfw.KEY_ESCAPE):
                 glfw.set_window_should_close(self._window, 1)
 
-            with self.lock():
+            with self.lock(strict=False) as l:
+                if l == nullcontext:
+                    continue
             
                 # Breaks on MacOS. Needed?
                 #imgui.get_io().display_size = glfw.get_framebuffer_size(self._window)
@@ -505,7 +516,9 @@ class viewer:
     # Upload image from PyTorch tensor
     def upload_image_torch(self, name, tensor):
         assert isinstance(tensor, torch.Tensor)
-        with self.lock():
+        with self.lock(strict=False) as l:
+            if l == nullcontext: # isinstance doesn't work
+                return
             cuda_synchronize()
             if not self.quit:
                 self.push_context() # set the context for whichever thread wants to upload
@@ -516,7 +529,9 @@ class viewer:
     
     # Upload data from cuda pointer retrieved using custom TF op 
     def upload_image_TF_ptr(self, name, ptr, shape):
-        with self.lock():
+        with self.lock(strict=False) as l:
+            if l == nullcontext: # isinstance doesn't work
+                return
             cuda_synchronize()
             if not self.quit:
                 self.push_context() # set the context for whichever thread wants to upload
@@ -527,7 +542,9 @@ class viewer:
 
     def upload_image_np(self, name, data):
         assert isinstance(data, np.ndarray)
-        with self.lock():
+        with self.lock(strict=False) as l:
+            if l == nullcontext: # isinstance doesn't work
+                return
             cuda_synchronize()
             if not self.quit:
                 self.push_context() # set the context for whichever thread wants to upload
