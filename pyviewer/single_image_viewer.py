@@ -100,6 +100,8 @@ class SingleImageViewer:
         self.ui_process.start()
 
     def restart(self):
+        if self.ui_process.is_alive():
+            self.ui_process.join()
         self._start()
 
     def close(self):
@@ -115,7 +117,11 @@ class SingleImageViewer:
 
     def set_glfw_callbacks(self, window):
         self.window_size_callback(window, *glfw.get_window_size(window)) # set defaults
+        glfw.set_window_close_callback(window, self.window_close_callback)
         glfw.set_window_size_callback(window, self.window_size_callback)
+
+    def window_close_callback(self, window):
+        self.started.value = False
 
     def window_size_callback(self, window, w, h):
         with self.curr_window_size.get_lock():
