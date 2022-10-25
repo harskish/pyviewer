@@ -44,15 +44,21 @@ def rgetattr(obj, key, default=None):
 
 # Combo box that returns value, not index
 def combo_box_vals(title, values, current, height_in_items=-1, to_str=str):
+    values = list(values)
     curr_idx = 0 if current not in values else values.index(current)
     changed, ind = imgui.combo(title, curr_idx, [to_str(v) for v in values], height_in_items)
     return changed, values[ind]
 
+# Imgui slider that can switch between int and float formatting at runtime
+def slider_dynamic(title, v, min, max, width=0.0):
+    scale_fmt = '%.2f' if np.modf(v)[0] > 0 else '%.0f' # dynamically change from ints to floats
+    with imgui_item_width(width):
+        return imgui.slider_float(title, v, min, max, format=scale_fmt)
+
 # Int2 slider that prevents overlap
 def slider_range(v1, v2, vmin, vmax, push=False, title='', width=0.0):
-    imgui.push_item_width(width)
-    s, e = imgui.slider_int2(title, v1, v2, vmin, vmax)[1]
-    imgui.pop_item_width()
+    with imgui_item_width(width):
+        s, e = imgui.slider_int2(title, v1, v2, vmin, vmax)[1]
 
     if push:
         return (min(s, e), max(s, e))
