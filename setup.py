@@ -19,6 +19,7 @@ setup(name='pyviewer',
         'glfw',
         'numpy',
         'imgui@git+https://github.com/harskish/pyimgui.git@dev/version-2.0#egg=pyimgui',
+        'pyopengl',
     ],
     include_package_data=True,
     package_data={
