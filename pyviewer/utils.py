@@ -172,3 +172,38 @@ def open_prog(pth, mode):
         fout.seek(0)
 
     return fout
+
+# Convert input image to valid range for showing
+def normalize_image_data(img_hwc, target_dtype='uint8'):    
+    is_np = isinstance(img_hwc, np.ndarray)
+    fw = np if is_np else torch
+    is_fp = (img_hwc.dtype.kind == 'f') if is_np else img_hwc.dtype.is_floating_point
+    
+    # Valid ranges for RGB data
+    maxval = 1 if is_fp else 255
+    minval = 0
+    
+    # If outside of range: normalize to [0, 1]
+    if img_hwc.max() > maxval or img_hwc.min() < minval:
+        img_hwc = img_hwc.astype(np.float32) if is_np else img_hwc.float()
+        img_hwc -= img_hwc.min() # min is negative
+        img_hwc /= img_hwc.max()
+        is_fp = True
+        maxval = 1
+    
+    # Convert to target dtype
+    if target_dtype == 'uint8':
+        img_hwc = img_hwc * 255 if is_fp else img_hwc
+        img_hwc = np.uint8(img_hwc) if is_np else img_hwc.byte()
+    else:
+        img_hwc = img_hwc.astype(fw.float32) if is_np else img_hwc.float()
+        img_hwc = img_hwc / maxval
+
+    # (H, W) to (H, W, 1)
+    if img_hwc.ndim == 2:
+        img_hwc = img_hwc[..., None]
+
+    # Use at most 3 channels
+    img_hwc = img_hwc[:, :, :3]
+
+    return img_hwc

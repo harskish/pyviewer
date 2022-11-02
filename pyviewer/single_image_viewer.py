@@ -17,7 +17,7 @@ except:
     pass
 
 from .gl_viewer import viewer
-from .utils import begin_inline
+from .utils import begin_inline, normalize_image_data
 
 class ImgShape(ctypes.Structure):
     _fields_ = [('h', ctypes.c_uint), ('w', ctypes.c_uint), ('c', ctypes.c_uint)]
@@ -155,28 +155,8 @@ class SingleImageViewer:
         sz = np.prod(img_hwc.shape)
         assert sz <= np.prod(self.max_size), f'Image too large, max size {self.max_size}'
         
-        # Valid ranges for RGB data
-        maxval = 1 if img_hwc.dtype.kind == 'f' else 255
-        minval = 0
-        
-        # If outside of range: normalize to [0, 1]
-        if img_hwc.max() > maxval or img_hwc.min() < minval:
-            img_hwc = img_hwc.astype(np.float32)
-            img_hwc -= img_hwc.min() # min is negative
-            img_hwc /= img_hwc.max()
-        
-        # Convert to target dtype
-        if self.dtype == 'uint8':
-            img_hwc = np.uint8(img_hwc * 255) if img_hwc.dtype.kind == 'f' else np.uint8(img_hwc)
-        else: 
-            img_hwc = img_hwc.astype(np.float32) / maxval
-
-        # (H, W) to (H, W, 1)
-        if img_hwc.ndim == 2:
-            img_hwc = np.expand_dims(img_hwc, -1)
-
-        # Use at most 3 channels
-        img_hwc = img_hwc[:, :, :3]
+        # Convert data to valid range
+        img_hwc = normalize_image_data(img_hwc)
 
         # Synchronize
         with self.shared_buffer.get_lock():
@@ -249,6 +229,6 @@ def init(*args, **kwargs):
     if inst is None:
         inst = SingleImageViewer(*args, **kwargs)
 
-def draw(img_hwc=None, img_chw=None, ignore_pause=False):
+def draw(*, img_hwc=None, img_chw=None, ignore_pause=False):
     init('SIV') # no-op if init already performed
     inst.draw(img_hwc, img_chw, ignore_pause)

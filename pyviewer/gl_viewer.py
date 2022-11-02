@@ -15,6 +15,7 @@ import imgui.core
 import imgui.plot as implot
 from imgui.integrations.glfw import GlfwRenderer
 from .imgui_themes import theme_dark_overshifted, theme_deep_dark, theme_ps, theme_contrast
+from .utils import normalize_image_data
 
 import glfw
 glfw.ERROR_REPORTING = 'raise' # make sure errors don't get swallowed
@@ -60,12 +61,11 @@ class _texture:
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
     def upload_np(self, image):
-        if image.dtype == np.uint8:
-            image = image.astype(np.float32) / 255.0
-        
+        image = normalize_image_data(image, 'float32')
+
         # support for shapes (h,w), (h,w,1), (h,w,3) and (h,w,4)
         if len(image.shape) == 2:
-            image = image.unsqueeze(-1)
+            image = np.expand_dims(image, -1)
         if image.shape[2] == 1:
             image = np.repeat(image, 3, axis=-1) #image.repeat(1,1,3)
         if image.shape[2] == 3:
