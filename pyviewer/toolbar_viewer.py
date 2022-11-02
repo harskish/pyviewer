@@ -25,6 +25,7 @@ class ToolbarViewer:
         self.output_pos_br = np.zeros(2, dtype=np.float32)
         self.output_area_tl = np.zeros(2, dtype=np.float32)
         self.output_area_br = np.zeros(2, dtype=np.float32)
+        self.content_size_px = (1, 1) # actual current content size
         self.ui_locked = True
         self.state = EasyDict()
         
@@ -51,13 +52,8 @@ class ToolbarViewer:
         return self.v.ui_scale
 
     @property
-    def content_rect(self):
-        return np.concatenate((self.output_area_tl, self.output_area_br), axis=0)
-
-    @property
     def content_size(self):
-        x1, y1, x2, y2 = self.content_rect
-        return np.array([x2-x1, y2-y1])
+        return np.array(self.content_size_px)
 
     @property
     def mouse_pos_abs(self):
@@ -87,7 +83,7 @@ class ToolbarViewer:
                 self.v.upload_image(self.output_key, img)
             else:
                 time.sleep(1/60)
-    
+
     def _draw_output(self):
         v = self.v
 
@@ -103,6 +99,7 @@ class ToolbarViewer:
         cW, cH = [int(r-l) for l,r in zip(rmin, rmax)]
         aspect = self.img_shape[2] / self.img_shape[1]
         out_size = min(cW, aspect*(cH - BOTTOM_PAD))
+        self.content_size_px = (out_size, out_size / aspect)
         
         # Draw provided image
         v.draw_image(self.output_key, width=out_size)
@@ -190,6 +187,14 @@ class ToolbarViewer:
     def mouse_over_content(self):
         x, y = self.mouse_pos_content_norm
         return (0 <= x <= 1) and (0 <= y <= 1)
+
+    # For updating image elsewhere than when returning from compute()
+    # (e.g. in callbacks or from UI thread)
+    def update_image(self, img_hwc):
+        H, W = img_hwc.shape[0:2]
+        C = 1 if img_hwc.ndim == 2 else img_hwc.shape[-1]
+        self.img_shape = [C, H, W]
+        self.v.upload_image(self.output_key, img_hwc)
     
     #-----------------------------------------------------------------------------------
     # User-provided functions
