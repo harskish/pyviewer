@@ -513,7 +513,7 @@ class viewer:
 
     def upload_image(self, name, data):
         if torch.is_tensor(data):
-            if data.device.type == 'mps':
+            if data.device.type in ['mps', 'cpu']:
                 # would require gl-metal interop or metal UI backend
                 return self.upload_image_np(name, data.cpu().numpy())
             else:
