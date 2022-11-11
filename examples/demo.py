@@ -19,7 +19,7 @@ def demo():
     x = toarr(x)
     y = toarr(y)
 
-    siv = pyviewer.single_image_viewer.SingleImageViewer('Async viewer', hidden=True)
+    #siv = pyviewer.single_image_viewer.SingleImageViewer('Async viewer', hidden=True)
 
     class Test(pyviewer.toolbar_viewer.ToolbarViewer):
         def setup_state(self):
@@ -27,8 +27,28 @@ def demo():
             self.state.img = None
         
         def compute(self):
+            import torch
+            
             rand = np.random.RandomState(seed=self.state.seed)
-            img = rand.randn(256, 256, 3).astype(np.float32)
+            img = rand.randn(256, 256, 3).astype(np.float32) # works (because np?)
+            #img = torch.tensor(rand.randn(256, 256, 3).astype(np.float32), device='cuda') # OK, but squeezed
+            #img = rand.randn(256, 256, 4).astype(np.float32) # works (because np?)
+            #img = torch.tensor(rand.randn(256, 256, 4).astype(np.float32), device='cuda') # OK!
+            
+            # l1 = torch.linspace(0, 1, 256, device='cuda')
+            # l2 = torch.linspace(1, 0, 256, device='cuda')
+            # grad_r = l1.view(-1, 1) * l1.view(1, -1)
+            # grad_g = l1.view(-1, 1) * l2.view(1, -1)
+            # grad_b = l2.view(-1, 1) * l1.view(1, -1)
+            # img = torch.stack((grad_r, grad_g, grad_b), dim=-1) # [256, 256, 3]
+
+            # # TEST: to uint8
+            # img = (255*torch.clamp(img, 0, 1)).byte()
+
+            # # Add alpha?
+            # #alpha = 1 if img.dtype.is_floating_point else 255
+            # #img = torch.cat((img, alpha*torch.ones_like(img[:, :, :1])), dim=-1)
+
             self.state.img = np.clip(img, 0, 1) # HWC
             return self.state.img
         
@@ -38,17 +58,17 @@ def demo():
                 imgui.plot.plot_line2('2cos(x)', x, y, N)
                 imgui.plot.end_plot()
             
-            imgui.separator()
-            imgui.text('Async viewer: separate process,\nwon\'t freeze if breakpoint is hit.')
-            if siv.hidden:
-                if imgui.button('Open async viewer'):
-                    print('Opening...')
-                    siv.show(sync=True)
-            elif not siv.started.value:
-                if imgui.button('Reopen async viewer'):
-                    siv.restart()
-            elif imgui.button('Update async viewer'):
-                siv.draw(img_hwc=self.state.img)
+            # imgui.separator()
+            # imgui.text('Async viewer: separate process,\nwon\'t freeze if breakpoint is hit.')
+            # if siv.hidden:
+            #     if imgui.button('Open async viewer'):
+            #         print('Opening...')
+            #         siv.show(sync=True)
+            # elif not siv.started.value:
+            #     if imgui.button('Reopen async viewer'):
+            #         siv.restart()
+            # elif imgui.button('Update async viewer'):
+            #     siv.draw(img_hwc=self.state.img)
 
     _ = Test('test_viewer')
     print('Done')

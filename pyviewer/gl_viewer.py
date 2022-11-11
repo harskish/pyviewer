@@ -7,6 +7,7 @@ import multiprocessing as mp
 from pathlib import Path
 from urllib.request import urlretrieve
 from threading import get_ident
+from typing import Dict
 import os
 from sys import platform
 from contextlib import contextmanager, nullcontext
@@ -48,6 +49,7 @@ class _texture:
         for params in ((gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT), (gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT), (gl.GL_TEXTURE_MIN_FILTER, min_mag_filter), (gl.GL_TEXTURE_MAG_FILTER, min_mag_filter)):
             gl.glTexParameteri(gl.GL_TEXTURE_2D, *params)
         self.mapper = None
+        self.is_fp = True
         self.shape = [0,0]
 
     # be sure to del textures if you create a forget them often (python doesn't necessarily call del on garbage collect)
@@ -62,19 +64,16 @@ class _texture:
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
     def upload_np(self, image):
-        image = normalize_image_data(image, 'float32')
-
-        # support for shapes (h,w), (h,w,1), (h,w,3) and (h,w,4)
-        if len(image.shape) == 2:
-            image = np.expand_dims(image, -1)
-        if image.shape[2] == 1:
-            image = np.repeat(image, 3, axis=-1) #image.repeat(1,1,3)
         if image.shape[2] == 3:
             image = np.concatenate([image, np.ones_like(image[:,:,0:1])], axis=-1)
 
         shape = image.shape
+        is_fp = image.dtype.kind == 'f'
+
+        raise RuntimeError('TODO: create UINT texture if uint data, set unpack_alignment etc.')
         
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
+        # TODO: glPixelStorei(GL_UNPACK_ALIGNMENT) if RGB data
         if shape[0] != self.shape[0] or shape[1] != self.shape[1]:
             # Reallocate
             self.shape = shape
@@ -84,38 +83,49 @@ class _texture:
             gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, shape[1], shape[0], gl.GL_RGBA, gl.GL_FLOAT, image)
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
-    def upload_torch(self, img):
+    def upload_torch(self, img: torch.Tensor):
         assert img.device.type == "cuda", "Please provide a CUDA tensor"
         assert img.ndim == 3, "Please provide a HWC tensor"
         assert img.shape[2] < min(img.shape[0], img.shape[1]), "Please provide a HWC tensor"
+        assert img.dtype in [torch.float32, torch.uint8], 'Only fp32 and u8 supported'
 
-        if not img.dtype.is_floating_point:
-            img = img.to(torch.float32) / 255.0
-
-        # support for shapes (h,w), (h,w,1), (h,w,3) and (h,w,4)
-        if img.shape[2] == 1:
-            img = img.repeat(1,1,3)
+        # OpenGL stores RGBA-strided data always
+        # Must add alpha for gpu memcopy to work
         if img.shape[2] == 3:
-            img = torch.cat((img, torch.ones_like(img[:,:,0:1])), 2)
-        
+            alpha = 1 if img.dtype.is_floating_point else 255
+            img = torch.cat((img, alpha*torch.ones_like(img[:, :, :1])), dim=-1)
+
         img = img.contiguous()
         if has_pycuda:
-            self.upload_ptr(img.data_ptr(), img.shape)
+            self.upload_ptr(img.data_ptr(), img.shape, img.dtype.is_floating_point)
         else:
             self.upload_np(img.detach().cpu().numpy())
 
     # Copy from cuda pointer
-    def upload_ptr(self, ptr, shape):
+    def upload_ptr(self, ptr, shape, is_fp32):
         assert has_pycuda, 'PyCUDA-GL not available, cannot upload using raw pointer'
-        assert shape[-1] == 4, 'Data format not RGBA'
+        has_alpha = shape[-1] == 4
 
         # reallocate if shape changed or data type changed from np to torch
-        if shape[0] != self.shape[0] or shape[1] != self.shape[1] or self.mapper is None:
+        if shape[0] != self.shape[0] or shape[1] != self.shape[1] or self.is_fp != is_fp32 or self.mapper is None:
             self.shape = shape
+            self.is_fp = is_fp32
             if self.mapper is not None:
                 self.mapper.unregister()
             gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
-            gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA32F, shape[1], shape[0], 0, gl.GL_RGBA, gl.GL_FLOAT, None)
+
+            # Internal format specifies how OpenGL stores the data
+            #   RGB32F: data stored as 32bit floats internally, shader sees normal ieee floats
+            #   RGB8: data stored in unsigned normalized format, shader sees equally spaced floats in [0, 1] ("compressed float")
+            #   RGBA8UI: data stored in unsigned integer format, shader sees ints
+            # NB: OpenGL will store data with RGBA-like stride no matter the format chosen
+            internal_fmt = gl.GL_RGB32F if is_fp32 else gl.GL_RGB8
+
+            # Incoming channel format and dtype
+            incoming_fmt = gl.GL_RGBA if has_alpha else gl.GL_RGB
+            incoming_dtype = gl.GL_FLOAT if is_fp32 else gl.GL_UNSIGNED_BYTE # fp32 or u8
+
+            gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, internal_fmt, shape[1], shape[0], 0, incoming_fmt, incoming_dtype, None)
             gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
             self.mapper = cuda_gl.RegisteredImage(int(self.tex), gl.GL_TEXTURE_2D, pycuda.gl.graphics_map_flags.WRITE_DISCARD)
         
@@ -127,12 +137,19 @@ class _texture:
         ptr_int = int(ptr)
         assert ptr_int == ptr, 'Device pointer overflow'
 
+        N = 4 if is_fp32 else 1
+        H, W, C = shape
+        assert C == 4, 'Input data must be RGBA' # OpenGL always stores alpha channel
+        
         # copy from torch tensor to mapped gl texture (avoid cpu roundtrip)
+        # https://documen.tician.de/pycuda/driver.html#pycuda.driver.Memcpy2D
         cpy = pycuda.driver.Memcpy2D()
         cpy.set_src_device(ptr_int)
         cpy.set_dst_array(tex_arr)
-        cpy.width_in_bytes = cpy.src_pitch = cpy.dst_pitch = 4*shape[1]*shape[2]
-        cpy.height = shape[0]
+        cpy.width_in_bytes = W*C*N  # Number of bytes to copy for each row in the transfer
+        cpy.src_pitch = W*C*N       # Size of a row in bytes at the origin of the copy
+        cpy.dst_pitch = W*C*N       # Size of a row in bytes at the destination of the copy
+        cpy.height = H
         cpy(aligned=False)
 
         # cleanup
@@ -507,7 +524,7 @@ class viewer:
             
         glfw.make_context_current(self._window)
         del self._images
-        self._images = {}
+        self._images: Dict[str, _texture] = {}
         glfw.make_context_current(None)
 
         glfw.destroy_window(self._window)
@@ -526,6 +543,8 @@ class viewer:
     # Upload image from PyTorch tensor
     def upload_image_torch(self, name, tensor):
         assert isinstance(tensor, torch.Tensor)
+        tensor = normalize_image_data(tensor, 'uint8')
+
         with self.lock(strict=False) as l:
             if l == nullcontext: # isinstance doesn't work
                 return
@@ -536,22 +555,11 @@ class viewer:
                     self._images[name] = _texture(self.tex_interp_mode)
                 self._images[name].upload_torch(tensor)
                 self.pop_context()
-    
-    # Upload data from cuda pointer retrieved using custom TF op 
-    def upload_image_TF_ptr(self, name, ptr, shape):
-        with self.lock(strict=False) as l:
-            if l == nullcontext: # isinstance doesn't work
-                return
-            cuda_synchronize()
-            if not self.quit:
-                self.push_context() # set the context for whichever thread wants to upload
-                if name not in self._images:
-                    self._images[name] = _texture(self.tex_interp_mode)
-                self._images[name].upload_ptr(ptr, shape)
-                self.pop_context()
 
     def upload_image_np(self, name, data):
         assert isinstance(data, np.ndarray)
+        data = normalize_image_data(data, 'uint8')
+
         with self.lock(strict=False) as l:
             if l == nullcontext: # isinstance doesn't work
                 return
