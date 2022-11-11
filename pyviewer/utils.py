@@ -176,7 +176,6 @@ def open_prog(pth, mode):
 # Convert input image to valid range for showing
 def normalize_image_data(img_hwc, target_dtype='uint8'):    
     is_np = isinstance(img_hwc, np.ndarray)
-    fw = np if is_np else torch
     is_fp = (img_hwc.dtype.kind == 'f') if is_np else img_hwc.dtype.is_floating_point
     
     # Valid ranges for RGB data
@@ -196,7 +195,7 @@ def normalize_image_data(img_hwc, target_dtype='uint8'):
         img_hwc = img_hwc * 255 if is_fp else img_hwc
         img_hwc = np.uint8(img_hwc) if is_np else img_hwc.byte()
     else:
-        img_hwc = img_hwc.astype(fw.float32) if is_np else img_hwc.float()
+        img_hwc = img_hwc.astype(np.float32) if is_np else img_hwc.float()
         img_hwc = img_hwc / maxval
 
     # (H, W) to (H, W, 1)
