@@ -10,6 +10,7 @@ from threading import get_ident
 import os
 from sys import platform
 from contextlib import contextmanager, nullcontext
+from platform import uname
 
 import imgui.core
 import imgui.plot as implot
@@ -218,8 +219,8 @@ class viewer:
         glfw.window_hint(glfw.MAXIMIZED, start_maximized)
         glfw.window_hint(glfw.VISIBLE, not hidden)
         
-        # MacOS requires forward-compatible core profile
-        if 'darwin' in platform:
+        # MacOS, WSL require forward-compatible core profile
+        if 'darwin' in platform or 'microsoft-standard' in uname().release:
             glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
             glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
             glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
@@ -254,7 +255,8 @@ class viewer:
         font = self.get_default_font()
 
         # MPLUSRounded1c-Medium.tff: no content for sizes >35
-        font_sizes = range(8, 36, 2) if 'darwin' in platform else range(8, 36, 1) # Apple M1 has limit on GL texture count
+        # Apple M1, WSL have have low texture count limits
+        font_sizes = range(8, 36, 1) if 'win32' in platform else range(8, 36, 2)
         font_sizes = [int(s) for s in font_sizes]
         handle = imgui.get_io().fonts
         self._imgui_fonts = {
