@@ -1,0 +1,15 @@
+name: pyviewer
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip=22.3
+  - pip:
+    - --extra-index-url https://download.pytorch.org/whl/cu116
+    - torch==1.13.1+cu116; sys_platform != "darwin"
+    - torch==1.13.*; sys_platform == "darwin"
+    - ninja==1.11.*
+    - -e .
+    - https://download.lfd.uci.edu/pythonlibs/archived/pycuda-2022.1+cuda116-cp310-cp310-win_amd64.whl; sys_platform != "darwin"
+
+# conda env create --force --file test_env.yml
