@@ -10,6 +10,6 @@ dependencies:
     - torch==1.13.*; sys_platform == "darwin"
     - ninja==1.11.*
     - -e .
-    - https://download.lfd.uci.edu/pythonlibs/archived/pycuda-2022.1+cuda116-cp310-cp310-win_amd64.whl; sys_platform != "darwin"
+    - https://download.lfd.uci.edu/pythonlibs/archived/pycuda-2022.1+cuda116-cp310-cp310-win_amd64.whl; sys_platform == "win32"
 
 # conda env create --force --file test_env.yml
