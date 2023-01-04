@@ -64,23 +64,48 @@ class _texture:
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
     def upload_np(self, image):
-        if image.shape[2] == 3:
-            image = np.concatenate([image, np.ones_like(image[:,:,0:1])], axis=-1)
-
         shape = image.shape
         is_fp = image.dtype.kind == 'f'
-
-        raise RuntimeError('TODO: create UINT texture if uint data, set unpack_alignment etc.')
+        has_alpha = image.shape[2] == 4
         
+        # See upload_ptr() for description of the formats
+        internal_fmt = gl.GL_RGB32F if is_fp else gl.GL_RGB8 # how OGL stores data
+        incoming_fmt = gl.GL_RGBA if has_alpha else gl.GL_RGB  # incoming channel format
+        incoming_dtype = gl.GL_FLOAT if is_fp else gl.GL_UNSIGNED_BYTE # incoming dtype
+
+        # RGB UINT8 data: no guarantee of 4-byte row alignment
+        # (F32 or RGBA alignment always divisible by 4)
+        gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1) # default: 4 bytes
+
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
-        # TODO: glPixelStorei(GL_UNPACK_ALIGNMENT) if RGB data
-        if shape[0] != self.shape[0] or shape[1] != self.shape[1]:
+        if shape[0] != self.shape[0] or shape[1] != self.shape[1] or self.is_fp != is_fp:
             # Reallocate
             self.shape = shape
-            gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA32F, shape[1], shape[0], 0, gl.GL_RGBA, gl.GL_FLOAT, image)
+            self.is_fp = is_fp
+            gl.glTexImage2D(
+                gl.GL_TEXTURE_2D, # GLenum target
+                0,                # GLint level
+                internal_fmt,     # GLint internalformat
+                shape[1],         # GLsizei width
+                shape[0],         # GLsizei height
+                0,                # GLint border
+                incoming_fmt,     # GLenum format
+                incoming_dtype,   # GLenum type
+                image,            # const void * data
+            )
         else:
             # Overwrite
-            gl.glTexSubImage2D(gl.GL_TEXTURE_2D, 0, 0, 0, shape[1], shape[0], gl.GL_RGBA, gl.GL_FLOAT, image)
+            gl.glTexSubImage2D(
+                gl.GL_TEXTURE_2D,   # GLenum target
+                0,                  # GLint level
+                0,                  # GLint xoffset
+                0,                  # GLint yoffset
+                shape[1],           # GLsizei width
+                shape[0],           # GLsizei height
+                incoming_fmt,       # GLenum format
+                incoming_dtype,     # GLenum type
+                image,              # const void * pixels
+            )
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
     def upload_torch(self, img: torch.Tensor):
@@ -89,17 +114,17 @@ class _texture:
         assert img.shape[2] < min(img.shape[0], img.shape[1]), "Please provide a HWC tensor"
         assert img.dtype in [torch.float32, torch.uint8], 'Only fp32 and u8 supported'
 
+        if not has_pycuda:
+            return self.upload_np(img.detach().cpu().numpy())
+        
         # OpenGL stores RGBA-strided data always
         # Must add alpha for gpu memcopy to work
         if img.shape[2] == 3:
-            alpha = 1 if img.dtype.is_floating_point else 255
+            alpha = 255 if img.dtype == torch.uint8 else 1.0
             img = torch.cat((img, alpha*torch.ones_like(img[:, :, :1])), dim=-1)
 
         img = img.contiguous()
-        if has_pycuda:
-            self.upload_ptr(img.data_ptr(), img.shape, img.dtype.is_floating_point)
-        else:
-            self.upload_np(img.detach().cpu().numpy())
+        self.upload_ptr(img.data_ptr(), img.shape, img.dtype.is_floating_point)
 
     # Copy from cuda pointer
     def upload_ptr(self, ptr, shape, is_fp32):
@@ -118,7 +143,15 @@ class _texture:
             #   RGB32F: data stored as 32bit floats internally, shader sees normal ieee floats
             #   RGB8: data stored in unsigned normalized format, shader sees equally spaced floats in [0, 1] ("compressed float")
             #   RGBA8UI: data stored in unsigned integer format, shader sees ints
-            # NB: OpenGL will store data with RGBA-like stride no matter the format chosen
+            # NB: OpenGL will often store data as RGBA no matter the format chosen
+            
+            """
+            And if you are interested, most GPUs like chunks of 4 bytes.
+            In other words, GL_RGBA or GL_BGRA is preferred when each component is a byte.
+            GL_RGB and GL_BGR is considered bizarre since most GPUs, most CPUs and any other kind of chip don't handle 24 bits.
+            This means, the driver converts your GL_RGB or GL_BGR to what the GPU prefers, which typically is RGBA/BGRA.
+            (https://www.khronos.org/opengl/wiki/Common_Mistakes)
+            """
             internal_fmt = gl.GL_RGB32F if is_fp32 else gl.GL_RGB8
 
             # Incoming channel format and dtype

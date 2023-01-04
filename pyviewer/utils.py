@@ -174,6 +174,8 @@ def open_prog(pth, mode):
     return fout
 
 # Convert input image to valid range for showing
+# Output converted to target dtype *after* scaling
+#   => should not affect quality that much
 def normalize_image_data(img_hwc, target_dtype='uint8'):    
     is_np = isinstance(img_hwc, np.ndarray)
     is_fp = (img_hwc.dtype.kind == 'f') if is_np else img_hwc.dtype.is_floating_point
@@ -190,6 +192,10 @@ def normalize_image_data(img_hwc, target_dtype='uint8'):
         is_fp = True
         maxval = 1
     
+    # At this point, data will be:
+    #  i) fp32, in [0, 1]
+    # ii) uint8, in [0, 255]
+
     # Convert to target dtype
     if target_dtype == 'uint8':
         img_hwc = img_hwc * 255 if is_fp else img_hwc
