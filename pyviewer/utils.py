@@ -2,7 +2,6 @@ import numpy as np
 import torch
 import imgui
 import contextlib
-from tqdm import tqdm
 from io import BytesIO
 from pathlib import Path
 import os
@@ -128,6 +127,7 @@ def seeds_to_latents(seeds, n_dims=512):
 # File copy with progress bar
 # For slow network drives etc.
 def copy_with_progress(pth_from, pth_to):
+    from tqdm import tqdm
     os.makedirs(pth_to.parent, exist_ok=True)
     size = int(os.path.getsize(pth_from))
     fin = open(pth_from, 'rb')

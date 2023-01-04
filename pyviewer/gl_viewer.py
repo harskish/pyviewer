@@ -143,7 +143,7 @@ class _texture:
             #   RGB32F: data stored as 32bit floats internally, shader sees normal ieee floats
             #   RGB8: data stored in unsigned normalized format, shader sees equally spaced floats in [0, 1] ("compressed float")
             #   RGBA8UI: data stored in unsigned integer format, shader sees ints
-            # NB: OpenGL will often store data as RGBA no matter the format chosen
+            
             
             """
             And if you are interested, most GPUs like chunks of 4 bytes.
@@ -152,7 +152,9 @@ class _texture:
             This means, the driver converts your GL_RGB or GL_BGR to what the GPU prefers, which typically is RGBA/BGRA.
             (https://www.khronos.org/opengl/wiki/Common_Mistakes)
             """
-            internal_fmt = gl.GL_RGB32F if is_fp32 else gl.GL_RGB8
+            # => just use RGBA for compatibility
+            internal_fmt = gl.GL_RGBA32F if is_fp32 else gl.GL_RGBA8
+            assert has_alpha, 'ptr upload needs alpha channel'
 
             # Incoming channel format and dtype
             incoming_fmt = gl.GL_RGBA if has_alpha else gl.GL_RGB

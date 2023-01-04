@@ -60,7 +60,7 @@ def demo():
             img = (255*torch.clamp(img, 0, 1)).byte()
 
             # As numpy
-            img = img.detach().cpu().numpy()
+            #img = img.detach().cpu().numpy()
 
             self.check_output(img)
             self.state.img = img
