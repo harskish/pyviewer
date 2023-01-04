@@ -151,6 +151,7 @@ def copy_with_progress(pth_from, pth_to):
 # For slow network drives etc.
 # Supports context manager
 def open_prog(pth, mode):
+    from tqdm import tqdm
     size = int(os.path.getsize(pth))
     fin = open(pth, 'rb')
 

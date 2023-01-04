@@ -3,6 +3,7 @@ import numpy as np
 import array
 import pyviewer # pip install -e .
 import imgui
+from pyviewer import single_image_viewer as siv
 
 has_torch = False
 try:
@@ -26,7 +27,7 @@ def demo():
     x = toarr(x)
     y = toarr(y)
 
-    siv = pyviewer.single_image_viewer.SingleImageViewer('Async viewer', hidden=True)
+    siv.init('Async viewer', hidden=True)
 
     class Test(pyviewer.toolbar_viewer.ToolbarViewer):
         def setup_state(self):
@@ -74,18 +75,19 @@ def demo():
             
             imgui.separator()
             imgui.text('Async viewer: separate process,\nwon\'t freeze if breakpoint is hit.')
-            if siv.hidden:
+
+            if siv.inst.hidden:
                 if imgui.button('Open async viewer'):
                     print('Opening...')
-                    siv.show(sync=True)
-            elif not siv.started.value:
+                    siv.inst.show(sync=True)
+            elif not siv.inst.started.value:
                 if imgui.button('Reopen async viewer'):
-                    siv.restart()
+                    siv.inst.restart()
             elif imgui.button('Update async viewer'):
                 siv.draw(img_hwc=self.state.img)
 
     _ = Test('test_viewer')
-    siv.close()
+    siv.inst.close()
     print('Done')
 
 if __name__ == '__main__':
