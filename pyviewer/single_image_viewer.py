@@ -1,6 +1,7 @@
 from pathlib import Path
 from threading import Thread
 import multiprocessing as mp
+import light_process as lp
 import numpy as np
 import random
 import string
@@ -8,6 +9,8 @@ import time
 import glfw
 import imgui
 import ctypes
+import sys
+import warnings
 
 has_torch = False
 try:
@@ -96,7 +99,7 @@ class SingleImageViewer:
 
     def _start(self):
         self.started.value = False
-        self.ui_process = mp.Process(target=self.process_func)
+        self.ui_process = lp.LightProcess(target=self.process_func) # won't import __main__
         self.ui_process.start()
 
     def restart(self):
@@ -218,6 +221,11 @@ class SingleImageViewer:
                 time.sleep(1/10) # paused
             else:
                 time.sleep(1/80) # idle
+
+# Suppress warning due to LightProcess
+if not sys.warnoptions:  # allow overriding with `-W` option
+    warnings.filterwarnings('ignore', category=RuntimeWarning, module='runpy',
+        message="'pyviewer.single_image_viewer' found in sys.modules.*")
 
 # Single global instance
 # Removes need to pass variable around in code
