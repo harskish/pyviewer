@@ -20,3 +20,6 @@ A viewer that shows ImGui UI elemets on the left, and a large image on the right
 
 ## Usage
 See `examples/demo.py` for a usage example.
+
+## TODO
+Figure out how to remove need for main guard (`if  __name__ == '__main__'`) when spawning single_image_viewer process
