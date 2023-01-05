@@ -1,6 +1,7 @@
 from pathlib import Path
 from threading import Thread
 import multiprocessing as mp
+import light_process as lp
 import numpy as np
 import random
 import string
@@ -96,7 +97,7 @@ class SingleImageViewer:
 
     def _start(self):
         self.started.value = False
-        self.ui_process = mp.Process(target=self.process_func)
+        self.ui_process = lp.LightProcess(target=self.process_func) # won't import __main__
         self.ui_process.start()
 
     def restart(self):

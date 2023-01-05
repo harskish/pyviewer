@@ -18,8 +18,9 @@ setup(name='pyviewer',
     install_requires=[
         'glfw',
         'numpy',
-        'imgui@git+https://github.com/harskish/pyimgui.git@dev/version-2.0#egg=pyimgui',
         'pyopengl',
+        'imgui@git+https://github.com/harskish/pyimgui.git@dev/version-2.0#egg=pyimgui',
+        'light_process@git+https://github.com/justengel/light_process.git@v0.0.7',
     ],
     include_package_data=True,
     package_data={
