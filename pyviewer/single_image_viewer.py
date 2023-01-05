@@ -9,6 +9,8 @@ import time
 import glfw
 import imgui
 import ctypes
+import sys
+import warnings
 
 has_torch = False
 try:
@@ -219,6 +221,11 @@ class SingleImageViewer:
                 time.sleep(1/10) # paused
             else:
                 time.sleep(1/80) # idle
+
+# Suppress warning due to LightProcess
+if not sys.warnoptions:  # allow overriding with `-W` option
+    warnings.filterwarnings('ignore', category=RuntimeWarning, module='runpy',
+        message="'pyviewer.single_image_viewer' found in sys.modules.*")
 
 # Single global instance
 # Removes need to pass variable around in code
