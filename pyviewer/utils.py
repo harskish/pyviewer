@@ -6,6 +6,22 @@ from io import BytesIO
 from pathlib import Path
 import os
 
+# Dataclass that enforces type annotation
+# Enables compare-by-value
+def strict_dataclass(cls, *args, **kwargs):
+    annotations = cls.__dict__.get('__annotations__', {})
+    for name in dir(cls):
+        if name.startswith('__'):
+            continue
+        if name not in annotations:
+            raise RuntimeError(f'Unannotated field: {name}')
+    
+    # Write updated
+    setattr(cls, '__annotations__', annotations)
+        
+    from dataclasses import dataclass
+    return dataclass(cls, *args, **kwargs)
+
 # with-block for item id
 @contextlib.contextmanager
 def imgui_id(id: str):
