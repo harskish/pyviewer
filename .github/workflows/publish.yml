@@ -30,7 +30,7 @@ jobs:
   upload_pypi:
     needs: [dist]
     runs-on: ubuntu-latest
-    #if: github.event_name == 'release' && github.event.action == 'published'  # don't upload on manually triggered builds
+    if: github.event_name == 'release' && github.event.action == 'published'  # don't upload on manually triggered builds
     steps:
       - uses: actions/download-artifact@v3
         with:
@@ -40,7 +40,7 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@v1.6.4
         with:
           user: __token__
-          #password: ${{ secrets.PYPI_PASSWORD }}
+          password: ${{ secrets.PYPI_PASSWORD }}
           # for testing:
-          password: ${{ secrets.TEST_PYPI_PASSWORD }}
-          repository_url: https://test.pypi.org/legacy/
+          #password: ${{ secrets.TEST_PYPI_PASSWORD }}
+          #repository_url: https://test.pypi.org/legacy/
