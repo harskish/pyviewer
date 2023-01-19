@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from distutils.core import setup
+from pathlib import Path
 
 import sys
 if 'develop' in sys.argv:
@@ -26,4 +27,8 @@ setup(name='pyviewer',
     package_data={
         '': ['*.ttf'] # embedded fonts
     },
+    long_description=Path('README.md').read_text()
+        .replace('docs/screenshot.jpg', 'https://github.com/harskish/pyviewer/raw/master/docs/screenshot.jpg'),
+    long_description_content_type="text/markdown",
+    license='CC BY-NC-SA 4.0',
 )
