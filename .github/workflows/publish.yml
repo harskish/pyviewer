@@ -1,0 +1,43 @@
+name: Publish to PyPi
+
+# Guide: https://scikit-hep.org/developer/gha_wheels
+
+on:
+  workflow_dispatch:  # button in UI for manual dispatch
+  release:            # new GitHub release
+    types:
+      - published
+
+jobs:
+  dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Build SDist and wheel
+        run: pipx run build
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: dist/*
+
+  upload_pypi:
+    needs: [dist]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'  # don't upload on manually triggered builds
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: artifact
+          path: dist
+
+      - uses: pypa/gh-action-pypi-publish@v1.6.4
+        with:
+          user: __token__
+          #password: ${{ secrets.PYPI_PASSWORD }}
+          # for testing:
+          password: ${{ secrets.TEST_PYPI_PASSWORD }}
+          repository_url: https://test.pypi.org/legacy/
