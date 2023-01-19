@@ -23,6 +23,9 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           path: dist/*
+      
+      - name: Check metadata
+        run: pipx run twine check dist/*
 
   upload_pypi:
     needs: [dist]
@@ -38,3 +41,6 @@ jobs:
         with:
           user: __token__
           password: ${{ secrets.PYPI_PASSWORD }}
+          # for testing:
+          #password: ${{ secrets.TEST_PYPI_PASSWORD }}
+          #repository_url: https://test.pypi.org/legacy/
