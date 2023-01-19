@@ -8,7 +8,7 @@ if 'develop' in sys.argv:
         dependencies correctly, please use 'pip install -e .' instead.")
 
 setup(name='pyviewer',
-    version='1.1',
+    version='1.2.1',
     description='Interactyive python viewers',
     author='Erik Härkönen',
     author_email='erik.harkonen@hotmail.com',
@@ -16,11 +16,11 @@ setup(name='pyviewer',
     packages=['pyviewer'], # name of importable thing
     setup_requires=['wheel'],
     install_requires=[
-        'glfw',
+        'glfw>2.0.0',
         'numpy',
-        'pyopengl',
-        'imgui@git+https://github.com/harskish/pyimgui.git@dev/version-2.0#egg=pyimgui',
-        'light_process@git+https://github.com/justengel/light_process.git@v0.0.7',
+        'pyopengl>3.0.0',
+        'pyplotgui',  # custom imgui+implot package
+        'light-process==0.0.7',
     ],
     include_package_data=True,
     package_data={
