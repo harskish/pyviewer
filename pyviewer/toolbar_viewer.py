@@ -7,7 +7,7 @@ import numpy as np
 import time
 
 from . import gl_viewer
-from .utils import imgui_item_width, begin_inline
+from .utils import imgui_item_width, begin_inline, PannableArea
 from .easy_dict import EasyDict
 
 #----------------------------------------------------------------------------
@@ -28,6 +28,10 @@ class ToolbarViewer:
         self.content_size_px = (1, 1) # actual current content size
         self.ui_locked = True
         self.state = EasyDict()
+
+        # Support image zoom and pan
+        self.pan_handler = PannableArea()
+        self.pan_enabled = True
         
         # User-provided
         self.setup_state()
@@ -41,7 +45,10 @@ class ToolbarViewer:
 
     def start_UI(self):
         compute_thread = threading.Thread(target=self._compute_loop, args=[])
-        self.v.start(self._ui_main, (compute_thread), self.setup_callbacks)
+        def init_callbacks(window):
+            self.pan_handler.set_callbacks(window)
+            self.setup_callbacks(window)
+        self.v.start(self._ui_main, (compute_thread), init_callbacks)
 
     @property
     def font_size(self):
@@ -77,6 +84,10 @@ class ToolbarViewer:
     def _compute_loop(self):
         while not self.v.quit:
             img = self.compute()
+            
+            if self.pan_enabled and img is not None:
+                img = self.pan_handler.zoom_and_pan(img)
+            
             if img is not None:
                 H, W, C = img.shape
                 self.img_shape = [C, H, W]
@@ -102,11 +113,13 @@ class ToolbarViewer:
         self.content_size_px = (out_size, out_size / aspect)
         
         # Draw provided image
-        v.draw_image(self.output_key, width=out_size)
-        self.output_pos_tl[:] = imgui.get_item_rect_min()
-        self.output_pos_br[:] = imgui.get_item_rect_max()
+        with self.pan_handler:
+            # TODO: this should be an OGL shader that resamples the image based on xform
+            v.draw_image(self.output_key, width=out_size)
 
         # Potential space for content
+        self.output_pos_tl[:] = imgui.get_item_rect_min()
+        self.output_pos_br[:] = imgui.get_item_rect_max()
         self.output_area_tl[:] = self.output_pos_tl
         self.output_area_br[:] = np.array(rmax) - np.array([0, BOTTOM_PAD])
 
