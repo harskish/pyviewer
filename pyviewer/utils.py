@@ -12,6 +12,30 @@ import string
 import kornia
 print('TODO: remove kornia dependency')
 
+import OpenGL.GL as gl
+import ctypes
+#from .gl_viewer import _texture
+
+vertex_src = """
+uniform mat3 xform;
+attribute vec2 position;
+attribute vec2 texcoord;
+varying vec2 v_texcoord;
+void main()
+{
+    v_texcoord = texcoord;
+    vec3 posxy = xform * vec3(position, 1.0);
+    gl_Position = vec4(posxy.xy, 0.0, 1.0);
+} """
+
+fragment_src = """
+uniform sampler2D tex;
+varying vec2 v_texcoord;
+void main()
+{
+    gl_FragColor = texture2D(tex, v_texcoord);
+} """
+
 # ImGui widget that wraps arbitrary object
 # and allows mouse pand & zoom controls
 class PannableArea():
@@ -24,22 +48,141 @@ class PannableArea():
         self.pan_start = (0, 0)
         self.pan_delta = (0, 0)
         self.zoom: float = 1.0
-        #self.xform: np.ndarray = np.eye(3)
+
+        # Canvas onto which resmapled image is drawn
+        self.canvas_tex = None
+        self.canvas_fb = None
+        self.canvas_w = None
+        self.canvas_h = None
 
         if set_callbacks:
             assert glfw_window, 'Must provide glfw window for callback setting'
             self.set_callbacks(glfw_window)
 
-    def zoom_and_pan(self, img_hwc):
-        import kornia
-        H, W, _ = img_hwc.shape
-        total = self.get_transform(W, H).to(img_hwc.device)
-        cW, cH = self.content_size_px
-        pixel_size = max(cW / W, cH / H) * self.zoom
-        mode = 'nearest' if pixel_size > 4 else 'bilinear'
-        transformed = kornia.geometry.warp_affine(
-            img_hwc.permute(2, 0, 1).unsqueeze(0), total[:, :2, :3], dsize=(H, W), mode=mode, align_corners=True)
-        return transformed.squeeze().permute(1, 2, 0) # back to hwc
+    def init_gl(self):
+        # Texture for offscreen rendering
+        # TODO: use _texture() class
+        self.canvas_w = 1024
+        self.canvas_h = 1024
+        self.canvas_tex = gl.glGenTextures(1)
+        gl.glBindTexture(gl.GL_TEXTURE_2D, self.canvas_tex)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+        gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, self.canvas_w, self.canvas_h, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, None)
+
+        # Framebuffer for offscreen rendering
+        self.canvas_fb = gl.glGenFramebuffers(1)
+        gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, self.canvas_fb)
+        gl.glFramebufferTexture(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, self.canvas_tex, 0)
+        gl.glDrawBuffers([gl.GL_COLOR_ATTACHMENT0])
+        if gl.glCheckFramebufferStatus(gl.GL_FRAMEBUFFER) != gl.GL_FRAMEBUFFER_COMPLETE:
+            raise RuntimeError('Could not create framebuffer for offscreen rendering')
+
+        self._shader_handle = gl.glCreateProgram()
+        vertex_shader = gl.glCreateShader(gl.GL_VERTEX_SHADER)
+        fragment_shader = gl.glCreateShader(gl.GL_FRAGMENT_SHADER)
+
+        gl.glShaderSource(vertex_shader, vertex_src)
+        gl.glShaderSource(fragment_shader, fragment_src)
+        gl.glCompileShader(vertex_shader)
+        gl.glCompileShader(fragment_shader)
+
+        gl.glAttachShader(self._shader_handle, vertex_shader)
+        gl.glAttachShader(self._shader_handle, fragment_shader)
+
+        gl.glLinkProgram(self._shader_handle)
+        gl.glDeleteShader(vertex_shader)
+        gl.glDeleteShader(fragment_shader)
+        
+        self._attrib_location_pos = gl.glGetAttribLocation(self._shader_handle, "position")
+        self._attrib_location_texcoord = gl.glGetAttribLocation(self._shader_handle, "texcoord")
+        self._attrib_location_tex = gl.glGetUniformLocation(self._shader_handle, "tex")
+        self._attrib_location_xform = gl.glGetUniformLocation(self._shader_handle, "xform")
+
+        self._vao_handle = gl.glGenVertexArrays(1)  # bundles one or more VBOs
+        self._vbo_handle = gl.glGenBuffers(1)       # per-vertex information to be interpolated (bound as GL_ARRAY_BUFFER)
+        self._elements_handle = gl.glGenBuffers(1)  # buffer of indices into vbo (bound as GL_ELEMENT_ARRAY_BUFFER)
+        
+        gl.glBindVertexArray(self._vao_handle)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._vbo_handle)
+        gl.glEnableVertexAttribArray(self._attrib_location_pos)
+        gl.glEnableVertexAttribArray(self._attrib_location_texcoord)
+
+        size_float = 4
+        vertex_size = 4 * size_float # 2*pos + 2*uv
+        gl.glVertexAttribPointer(self._attrib_location_pos, 2, gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(0*size_float))
+        gl.glVertexAttribPointer(self._attrib_location_texcoord, 2, gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(2*size_float))
+
+        # Two static tris that form a quad
+        # OpenGL 3.3: just stick to glBufferData
+        # OpenGL 4.5+: could use glNamedBufferData (dynamic) or glNamedBufferStorage (static)
+
+        # Vertex data:            strip         position           UV coord
+        vertices = np.array([  #  order    (-1, +1)   (+1, +1)   (0,0)  (1,0)
+            -1, +1, 0, 0,      #  1----3        +-------+           +----+
+            -1, -1, 0, 1,      #  |  / |        |  NDC  |           |    |
+            +1, +1, 1, 0,      #  | /  |        | SPACE |           |    |
+            +1, -1, 1, 1,      #  2----4        +-------+           +----+
+        ], dtype=np.float32)   #           (-1, -1)   (+1, -1)   (0,1)  (1,1)
+
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._vbo_handle)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER, 4 * vertex_size, vertices, gl.GL_STATIC_DRAW)
+
+    def draw_to_canvas(self, texture_in):
+        last_texture = gl.glGetIntegerv(gl.GL_TEXTURE_BINDING_2D)
+        last_array_buffer = gl.glGetIntegerv(gl.GL_ARRAY_BUFFER_BINDING)
+        last_vertex_array = gl.glGetIntegerv(gl.GL_VERTEX_ARRAY_BINDING)
+        last_framebuffer = gl.glGetInteger(gl.GL_FRAMEBUFFER_BINDING)
+        last_clear_color = gl.glGetFloatv(gl.GL_COLOR_CLEAR_VALUE)
+        last_viewport = gl.glGetIntegerv(gl.GL_VIEWPORT)
+
+        if self.canvas_fb is None:
+            self.init_gl()
+
+        #gl.glDisable(gl.GL_BLEND)
+        gl.glDisable(gl.GL_CULL_FACE)
+        gl.glDisable(gl.GL_DEPTH_TEST)
+        gl.glDisable(gl.GL_SCISSOR_TEST)
+        gl.glActiveTexture(gl.GL_TEXTURE0)
+        gl.glClearColor(0, 0, 0, 1)
+
+        xform = self.get_transform(1, 1).squeeze().float().cpu().numpy()
+        xform[1, 1] *= -1 # flip y
+        xform = np.transpose(xform)
+
+        gl.glUseProgram(self._shader_handle)
+        gl.glUniform1i(self._attrib_location_tex, 0) # slot 0
+        gl.glUniformMatrix3fv(self._attrib_location_xform, 1, gl.GL_FALSE, xform)
+        gl.glBindVertexArray(self._vao_handle)
+        gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, self.canvas_fb)
+
+        # TODO: need (location = 0)?
+        # opengl-tutorial.org/intermediate-tutorials/tutorial-14-render-to-texture/
+        gl.glViewport(0, 0, int(self.canvas_w), int(self.canvas_h))
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+        gl.glBindTexture(gl.GL_TEXTURE_2D, texture_in) # slot 0
+        gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, 0, 4)
+
+        # restore state
+        gl.glBindTexture(gl.GL_TEXTURE_2D, last_texture)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, last_array_buffer)
+        gl.glBindVertexArray(last_vertex_array)
+        gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, last_framebuffer)
+        gl.glClearColor(*last_clear_color)
+        gl.glViewport(*last_viewport)
+
+        return self.canvas_tex
+
+    # def zoom_and_pan(self, img_hwc):
+    #     import kornia
+    #     H, W, _ = img_hwc.shape
+    #     total = self.get_transform(W, H).to(img_hwc.device)
+    #     cW, cH = self.content_size_px
+    #     pixel_size = max(cW / W, cH / H) * self.zoom
+    #     mode = 'nearest' if pixel_size > 4 else 'bilinear'
+    #     transformed = kornia.geometry.warp_affine(
+    #         img_hwc.permute(2, 0, 1).unsqueeze(0), total[:, :2, :3], dsize=(H, W), mode=mode, align_corners=True)
+    #     return transformed.squeeze().permute(1, 2, 0) # back to hwc
 
     def set_callbacks(self, glfw_window):
         self.prev_cbk = glfw.set_scroll_callback(glfw_window, self.mouse_wheel_callback)
@@ -94,6 +237,7 @@ class PannableArea():
         if imgui.is_mouse_down(0):
             self.pan_delta = (a - self.pan_start[0], b - self.pan_start[1])
         if imgui.is_mouse_released(0): # left mouse up
+            print(self.pan, self.pan_delta)
             self.pan = tuple(s+d for s,d in zip(self.pan, self.pan_delta))
             self.pan_start = self.pan_delta = (0, 0)
         

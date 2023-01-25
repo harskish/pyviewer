@@ -85,8 +85,8 @@ class ToolbarViewer:
         while not self.v.quit:
             img = self.compute()
             
-            if self.pan_enabled and img is not None:
-                img = self.pan_handler.zoom_and_pan(img)
+            #if self.pan_enabled and img is not None:
+            #    img = self.pan_handler.zoom_and_pan(img)
             
             if img is not None:
                 H, W, C = img.shape
@@ -113,9 +113,11 @@ class ToolbarViewer:
         self.content_size_px = (out_size, out_size / aspect)
         
         # Draw provided image
-        with self.pan_handler:
-            # TODO: this should be an OGL shader that resamples the image based on xform
-            v.draw_image(self.output_key, width=out_size)
+        with self.pan_handler as ph:
+            tex_in = v._images.get(self.output_key)
+            if tex_in:
+                tex = ph.draw_to_canvas(texture_in=tex_in.tex)
+                imgui.image(tex, out_size, out_size * ph.canvas_h / ph.canvas_w)
 
         # Potential space for content
         self.output_pos_tl[:] = imgui.get_item_rect_min()
