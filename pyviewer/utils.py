@@ -1,5 +1,4 @@
 import numpy as np
-import torch
 import imgui
 import contextlib
 from io import BytesIO
@@ -150,7 +149,7 @@ class PannableArea():
         gl.glActiveTexture(gl.GL_TEXTURE0)
         gl.glClearColor(0, 0, 0, 1)
 
-        xform = self.get_transform(1, 1).squeeze().float().cpu().numpy()
+        xform = self.get_transform(1, 1)
         xform[1, 1] *= -1  # flip y
         xform[0:2, 2] *= 2 # adapt to larger [-1, 1] NDC range
         xform = np.transpose(xform)
@@ -181,8 +180,8 @@ class PannableArea():
     def set_callbacks(self, glfw_window):
         self.prev_cbk = glfw.set_scroll_callback(glfw_window, self.mouse_wheel_callback)
 
-    def get_transform(self, W, H, top_left=(0, 0)):        
-        M = torch.eye(3)
+    def get_transform(self, W, H):        
+        M = np.eye(3, dtype=np.float32)
         M[0, 2] += (self.pan[0]+self.pan_delta[0])*W
         M[1, 2] += (self.pan[1]+self.pan_delta[1])*H
         M *= self.zoom
@@ -209,14 +208,14 @@ class PannableArea():
         self.output_pos_br[:] = imgui.get_item_rect_max()
 
         # Handle pan action
-        xy = torch.tensor(self.mouse_pos_img_norm)
+        xy = np.array(self.mouse_pos_img_norm)
         
         # Figure out what part of image is currently visible
-        box = torch.tensor([
+        box = np.array([
             0.0, 0.0, 1.0,
             1.0, 1.0, 1.0,
-        ]).view(1, 2, 3)
-        M = torch.linalg.inv(self.get_transform(1, 1))
+        ]).reshape(1, 2, 3)
+        M = np.linalg.inv(self.get_transform(1, 1))
         box = (box @ M)[0, 0:2, 0:2]
         a, b = (box[0] * (1 - xy) + box[1] * xy).tolist()
 
@@ -364,6 +363,7 @@ def reshape_grid_np(img_batch):
     return img_batch
 
 def reshape_grid_torch(img_batch):
+    import torch
     if isinstance(img_batch, list):
         img_batch = torch.cat(img_batch, axis=0) # along batch dim
     
@@ -377,7 +377,7 @@ def reshape_grid_torch(img_batch):
     return img_batch
 
 def reshape_grid(batch):
-    return reshape_grid_torch(batch) if torch.is_tensor(batch) else reshape_grid_np(batch)
+    return reshape_grid_np(batch) if isinstance(batch, np.ndarray) else reshape_grid_torch(batch)
 
 def sample_seeds(N, base=None):
     if base is None:

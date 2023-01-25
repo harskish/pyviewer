@@ -5,10 +5,8 @@
 import numpy as np
 import multiprocessing as mp
 from pathlib import Path
-from urllib.request import urlretrieve
 from threading import get_ident
 from typing import Dict
-import os
 from sys import platform
 from contextlib import contextmanager, nullcontext
 from platform import uname
@@ -16,17 +14,22 @@ from platform import uname
 import imgui.core
 import imgui.plot as implot
 from imgui.integrations.glfw import GlfwRenderer
-from .imgui_themes import theme_dark_overshifted, theme_deep_dark, theme_ps, theme_contrast
+from .imgui_themes import theme_deep_dark
 from .utils import normalize_image_data
 
 import glfw
 glfw.ERROR_REPORTING = 'raise' # make sure errors don't get swallowed
-
 import OpenGL.GL as gl
-import torch
+
+has_torch = False
+try:
+    import torch
+    has_torch = True
+except:
+    pass
 
 cuda_synchronize = lambda : None
-if torch.cuda.is_available():
+if has_torch and torch.cuda.is_available():
     cuda_synchronize = torch.cuda.synchronize
 
 has_pycuda = False
@@ -108,7 +111,7 @@ class _texture:
             )
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
-    def upload_torch(self, img: torch.Tensor):
+    def upload_torch(self, img):
         assert img.device.type == "cuda", "Please provide a CUDA tensor"
         assert img.ndim == 3, "Please provide a HWC tensor"
         assert img.shape[2] < min(img.shape[0], img.shape[1]), "Please provide a HWC tensor"
@@ -566,7 +569,7 @@ class viewer:
         self.pop_context()
 
     def upload_image(self, name, data):
-        if torch.is_tensor(data):
+        if has_torch and torch.is_tensor(data):
             if data.device.type in ['mps', 'cpu']:
                 # would require gl-metal interop or metal UI backend
                 return self.upload_image_np(name, data.cpu().numpy())
