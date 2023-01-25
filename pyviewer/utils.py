@@ -237,7 +237,6 @@ class PannableArea():
         if imgui.is_mouse_down(0):
             self.pan_delta = (a - self.pan_start[0], b - self.pan_start[1])
         if imgui.is_mouse_released(0): # left mouse up
-            print(self.pan, self.pan_delta)
             self.pan = tuple(s+d for s,d in zip(self.pan, self.pan_delta))
             self.pan_start = self.pan_delta = (0, 0)
         
