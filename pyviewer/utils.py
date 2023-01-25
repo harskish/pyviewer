@@ -8,42 +8,21 @@ import os
 import glfw
 import random
 import string
-
-import kornia
-print('TODO: remove kornia dependency')
+from textwrap import dedent
 
 import OpenGL.GL as gl
 import ctypes
-#from .gl_viewer import _texture
-
-vertex_src = """
-uniform mat3 xform;
-attribute vec2 position;
-attribute vec2 texcoord;
-varying vec2 v_texcoord;
-void main()
-{
-    v_texcoord = texcoord;
-    vec3 posxy = xform * vec3(position, 1.0);
-    gl_Position = vec4(posxy.xy, 0.0, 1.0);
-} """
-
-fragment_src = """
-uniform sampler2D tex;
-varying vec2 v_texcoord;
-void main()
-{
-    gl_FragColor = texture2D(tex, v_texcoord);
-} """
 
 # ImGui widget that wraps arbitrary object
 # and allows mouse pand & zoom controls
 class PannableArea():
     def __init__(self, set_callbacks=False, glfw_window=False) -> None:  # draw_content: callable, 
         self.prev_cbk: callable = lambda : None  # for chaining
-        self.output_rect_tl = np.zeros(2, dtype=np.float32)
+        self.output_pos_tl = np.zeros(2, dtype=np.float32)
+        self.output_pos_br = np.zeros(2, dtype=np.float32)
         self.content_size_px = (1, 1)
         self.id = ''.join(random.choices(string.ascii_letters, k=20))
+        self.is_panning = False
         self.pan = (0, 0)
         self.pan_start = (0, 0)
         self.pan_delta = (0, 0)
@@ -81,9 +60,34 @@ class PannableArea():
         self._shader_handle = gl.glCreateProgram()
         vertex_shader = gl.glCreateShader(gl.GL_VERTEX_SHADER)
         fragment_shader = gl.glCreateShader(gl.GL_FRAGMENT_SHADER)
+        
+        gl.glShaderSource(vertex_shader, dedent(
+            """
+            uniform mat3 xform;
+            attribute vec2 position;
+            attribute vec2 texcoord;
+            varying vec2 v_texcoord;
 
-        gl.glShaderSource(vertex_shader, vertex_src)
-        gl.glShaderSource(fragment_shader, fragment_src)
+            void main()
+            {
+                v_texcoord = texcoord;
+                vec3 posxy = xform * vec3(position, 1.0);
+                gl_Position = vec4(posxy.xy, 0.0, 1.0);
+            }"""
+        ))
+
+
+        gl.glShaderSource(fragment_shader, dedent(
+            """
+            uniform sampler2D tex;
+            varying vec2 v_texcoord;
+
+            void main()
+            {
+                gl_FragColor = texture2D(tex, v_texcoord);
+            }"""
+        ))
+
         gl.glCompileShader(vertex_shader)
         gl.glCompileShader(fragment_shader)
 
@@ -147,7 +151,8 @@ class PannableArea():
         gl.glClearColor(0, 0, 0, 1)
 
         xform = self.get_transform(1, 1).squeeze().float().cpu().numpy()
-        xform[1, 1] *= -1 # flip y
+        xform[1, 1] *= -1  # flip y
+        xform[0:2, 2] *= 2 # adapt to larger [-1, 1] NDC range
         xform = np.transpose(xform)
 
         gl.glUseProgram(self._shader_handle)
@@ -173,35 +178,15 @@ class PannableArea():
 
         return self.canvas_tex
 
-    # def zoom_and_pan(self, img_hwc):
-    #     import kornia
-    #     H, W, _ = img_hwc.shape
-    #     total = self.get_transform(W, H).to(img_hwc.device)
-    #     cW, cH = self.content_size_px
-    #     pixel_size = max(cW / W, cH / H) * self.zoom
-    #     mode = 'nearest' if pixel_size > 4 else 'bilinear'
-    #     transformed = kornia.geometry.warp_affine(
-    #         img_hwc.permute(2, 0, 1).unsqueeze(0), total[:, :2, :3], dsize=(H, W), mode=mode, align_corners=True)
-    #     return transformed.squeeze().permute(1, 2, 0) # back to hwc
-
     def set_callbacks(self, glfw_window):
         self.prev_cbk = glfw.set_scroll_callback(glfw_window, self.mouse_wheel_callback)
 
-    def get_transform(self, W, H, top_left=(0, 0)):
-        tr = torch.tensor([
-            (self.pan[0]+self.pan_delta[0])*W,
-            (self.pan[1]+self.pan_delta[1])*H
-        ], dtype=torch.float32).reshape(1, 2)
-        center = torch.tensor(
-            [top_left[0] - tr[0, 0] + W/2, top_left[1] - tr[0, 1] + H/2], dtype=torch.float32).reshape(1, 2) # for rotation and zoom
-        angle = torch.tensor([0.0], dtype=torch.float32)
-        scale = torch.tensor(2*[self.zoom], dtype=torch.float32).reshape(1, 2)
-        
-        _M = kornia.geometry.transform.get_affine_matrix2d(tr, center, scale, angle)
-        #M = torch.tensor(np.diag(self.zoom, self.zoom, 1.0))
-        #M[0:2, 2] += tr
-
-        return _M
+    def get_transform(self, W, H, top_left=(0, 0)):        
+        M = torch.eye(3)
+        M[0, 2] += (self.pan[0]+self.pan_delta[0])*W
+        M[1, 2] += (self.pan[1]+self.pan_delta[1])*H
+        M *= self.zoom
+        return M
 
     # Content wrapped in with handler
     def __enter__(self):
@@ -218,10 +203,13 @@ class PannableArea():
         rmin = imgui.get_window_content_region_min()
         rmax = imgui.get_window_content_region_max()
         self.content_size_px = tuple([int(r-l) for l,r in zip(rmin, rmax)])
-        self.output_rect_tl[:] = imgui.get_item_rect_min()
+
+        # Potential space for content
+        self.output_pos_tl[:] = imgui.get_item_rect_min()
+        self.output_pos_br[:] = imgui.get_item_rect_max()
 
         # Handle pan action
-        xy = torch.tensor(self.mouse_pos_content_norm) # normalized coords
+        xy = torch.tensor(self.mouse_pos_img_norm)
         
         # Figure out what part of image is currently visible
         box = torch.tensor([
@@ -232,13 +220,19 @@ class PannableArea():
         box = (box @ M)[0, 0:2, 0:2]
         a, b = (box[0] * (1 - xy) + box[1] * xy).tolist()
 
-        if imgui.is_mouse_clicked(0): # left mouse down
+        if imgui.is_mouse_clicked(0) and self.mouse_hovers_content():
+            self.is_panning = True
             self.pan_start = (a, b)
-        if imgui.is_mouse_down(0):
+        if self.is_panning and imgui.is_mouse_down(0):
             self.pan_delta = (a - self.pan_start[0], b - self.pan_start[1])
-        if imgui.is_mouse_released(0): # left mouse up
+        if self.is_panning and imgui.is_mouse_released(0):
             self.pan = tuple(s+d for s,d in zip(self.pan, self.pan_delta))
             self.pan_start = self.pan_delta = (0, 0)
+            self.is_panning = False
+        if imgui.is_mouse_double_clicked(0):  # Reset view
+            self.pan = self.pan_start = self.pan_delta = (0, 0)
+            self.zoom = 1.0
+            self.is_panning = False
         
         # Close container
         imgui.end()
@@ -252,18 +246,21 @@ class PannableArea():
         return np.array(imgui.get_mouse_pos())
 
     @property
-    def mouse_pos_content_norm(self):
-        return (self.mouse_pos_abs - self.output_rect_tl) / self.content_size
+    def mouse_pos_img_norm(self):
+        dims = self.output_pos_br - self.output_pos_tl
+        if any(dims == 0):
+            return np.array([-1, -1], dtype=np.float32) # no valid content
+        return (self.mouse_pos_abs - self.output_pos_tl) / dims
 
     def mouse_hovers_content(self):
-        x, y = self.mouse_pos_content_norm
+        x, y = self.mouse_pos_img_norm #mouse_pos_content_norm
         return (0 <= x <= 1) and (0 <= y <= 1)
     
     def mouse_wheel_callback(self, window, x, y) -> None:
         if self.mouse_hovers_content():
             self.zoom = max(1e-2, (0.85**np.sign(-y)) * self.zoom)
         else:
-            self.prev_scroll_callback(window, x, y) # scroll imgui lists etc.
+            self.prev_cbk(window, x, y) # scroll imgui lists etc.
 
 # Dataclass that enforces type annotation
 # Enables compare-by-value
