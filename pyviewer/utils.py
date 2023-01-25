@@ -62,10 +62,11 @@ class PannableArea():
         
         gl.glShaderSource(vertex_shader, dedent(
             """
+            #version 330
             uniform mat3 xform;
-            attribute vec2 position;
-            attribute vec2 texcoord;
-            varying vec2 v_texcoord;
+            layout(location = 0) in vec2 position;
+            layout(location = 1) in vec2 texcoord;
+            out vec2 v_texcoord;
 
             void main()
             {
@@ -75,20 +76,24 @@ class PannableArea():
             }"""
         ))
 
-
         gl.glShaderSource(fragment_shader, dedent(
             """
+            #version 330
             uniform sampler2D tex;
-            varying vec2 v_texcoord;
+            in vec2 v_texcoord;
+            out vec4 color;
 
             void main()
             {
-                gl_FragColor = texture2D(tex, v_texcoord);
+                color = texture(tex, v_texcoord);
             }"""
         ))
 
-        gl.glCompileShader(vertex_shader)
-        gl.glCompileShader(fragment_shader)
+        for prog in [vertex_shader, fragment_shader]:
+            gl.glCompileShader(prog)
+            log = gl.glGetShaderInfoLog(prog)
+            if log:
+                print(log)
 
         gl.glAttachShader(self._shader_handle, vertex_shader)
         gl.glAttachShader(self._shader_handle, fragment_shader)
