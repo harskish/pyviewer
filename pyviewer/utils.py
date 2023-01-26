@@ -241,7 +241,7 @@ class PannableArea():
             self.pan = tuple(s+d for s,d in zip(self.pan, self.pan_delta))
             self.pan_start = self.pan_delta = (0, 0)
             self.is_panning = False
-        if imgui.is_mouse_double_clicked(0):  # Reset view
+        if imgui.is_mouse_double_clicked(0) and self.mouse_hovers_content():  # Reset view
             self.pan = self.pan_start = self.pan_delta = (0, 0)
             self.zoom = 1.0
             self.is_panning = False
