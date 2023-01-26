@@ -18,8 +18,6 @@ class PannableArea():
     def __init__(self, set_callbacks=False, glfw_window=False) -> None:  # draw_content: callable, 
         self.prev_cbk: callable = lambda : None  # for chaining
         self.output_pos_tl = np.zeros(2, dtype=np.float32)
-        self.output_pos_br = np.zeros(2, dtype=np.float32)
-        self.content_size_px = (1, 1)
         self.id = ''.join(random.choices(string.ascii_letters, k=20))
         self.is_panning = False
         self.pan = (0, 0)
@@ -30,23 +28,46 @@ class PannableArea():
         # Canvas onto which resmapled image is drawn
         self.canvas_tex = None
         self.canvas_fb = None
-        self.canvas_w = None
-        self.canvas_h = None
+        self.canvas_w = 0
+        self.canvas_h = 0
 
         if set_callbacks:
             assert glfw_window, 'Must provide glfw window for callback setting'
             self.set_callbacks(glfw_window)
 
-    def init_gl(self):
-        # Texture for offscreen rendering
-        # TODO: use _texture() class
-        self.canvas_w = 1024
-        self.canvas_h = 1024
+    def resize_canvas(self, W, H):
+        if self.canvas_w == W and self.canvas_h == H:
+            return
+        
+        print(f'PannableArea: resizing to {W}x{H}')
+        self.canvas_w = W
+        self.canvas_h = H
+
+        last_texture = gl.glGetIntegerv(gl.GL_TEXTURE_BINDING_2D)
+        gl.glBindTexture(gl.GL_TEXTURE_2D, self.canvas_tex)
+
+        # Reallocate, id stays the same
+        gl.glTexImage2D(
+            gl.GL_TEXTURE_2D,     # GLenum target
+            0,                    # GLint level
+            gl.GL_RGBA,           # GLint internalformat
+            W,                    # GLsizei width
+            H,                    # GLsizei height
+            0,                    # GLint border
+            gl.GL_RGBA,           # GLenum format
+            gl.GL_UNSIGNED_BYTE,  # GLenum type
+            None                  # const void * data
+        )
+
+        # Restore state
+        gl.glBindTexture(gl.GL_TEXTURE_2D, last_texture)
+
+    def init_gl(self, canvas_width, canvas_height):
         self.canvas_tex = gl.glGenTextures(1)
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.canvas_tex)
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
-        gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, self.canvas_w, self.canvas_h, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, None)
+        self.resize_canvas(canvas_width, canvas_height)
 
         # Framebuffer for offscreen rendering
         self.canvas_fb = gl.glGenFramebuffers(1)
@@ -136,7 +157,7 @@ class PannableArea():
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._vbo_handle)
         gl.glBufferData(gl.GL_ARRAY_BUFFER, 4 * vertex_size, vertices, gl.GL_STATIC_DRAW)
 
-    def draw_to_canvas(self, texture_in):
+    def draw_to_canvas(self, texture_in, W, H):
         last_texture = gl.glGetIntegerv(gl.GL_TEXTURE_BINDING_2D)
         last_array_buffer = gl.glGetIntegerv(gl.GL_ARRAY_BUFFER_BINDING)
         last_vertex_array = gl.glGetIntegerv(gl.GL_VERTEX_ARRAY_BINDING)
@@ -145,7 +166,13 @@ class PannableArea():
         last_viewport = gl.glGetIntegerv(gl.GL_VIEWPORT)
 
         if self.canvas_fb is None:
-            self.init_gl()
+            self.init_gl(W, H)
+
+        # Reallocate if window size has changed
+        self.resize_canvas(W, H)
+
+        # Update pan & zoom state
+        self.handle_pan()
 
         #gl.glDisable(gl.GL_BLEND)
         gl.glDisable(gl.GL_CULL_FACE)
@@ -165,9 +192,8 @@ class PannableArea():
         gl.glBindVertexArray(self._vao_handle)
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, self.canvas_fb)
 
-        # TODO: need (location = 0)?
-        # opengl-tutorial.org/intermediate-tutorials/tutorial-14-render-to-texture/
-        gl.glViewport(0, 0, int(self.canvas_w), int(self.canvas_h))
+        # Run shader
+        gl.glViewport(0, 0, self.canvas_w, self.canvas_h)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
         gl.glBindTexture(gl.GL_TEXTURE_2D, texture_in) # slot 0
         gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, 0, 4)
@@ -192,27 +218,9 @@ class PannableArea():
         M *= self.zoom
         return M
 
-    # Content wrapped in with handler
-    def __enter__(self):
-        # Create container
-        imgui.set_next_window_size(*imgui.get_window_size())
-        imgui.set_next_window_position(*imgui.get_window_position())
-        begin_inline(f'pannable_content##{self.id}')
-        
-        # Draw enclosed content
-        return self
-
-    def __exit__(self, *args, **kwargs):
-        # Keep track of content bounds
-        rmin = imgui.get_window_content_region_min()
-        rmax = imgui.get_window_content_region_max()
-        self.content_size_px = tuple([int(r-l) for l,r in zip(rmin, rmax)])
-
-        # Potential space for content
+    # Handle pan action
+    def handle_pan(self):
         self.output_pos_tl[:] = imgui.get_item_rect_min()
-        self.output_pos_br[:] = imgui.get_item_rect_max()
-
-        # Handle pan action
         xy = np.array(self.mouse_pos_img_norm)
         
         # Figure out what part of image is currently visible
@@ -237,27 +245,20 @@ class PannableArea():
             self.pan = self.pan_start = self.pan_delta = (0, 0)
             self.zoom = 1.0
             self.is_panning = False
-        
-        # Close container
-        imgui.end()
     
-    @property
-    def content_size(self):
-        return np.array(self.content_size_px)
-
     @property
     def mouse_pos_abs(self):
         return np.array(imgui.get_mouse_pos())
 
     @property
     def mouse_pos_img_norm(self):
-        dims = self.output_pos_br - self.output_pos_tl
+        dims = np.array((self.canvas_w, self.canvas_h))
         if any(dims == 0):
             return np.array([-1, -1], dtype=np.float32) # no valid content
         return (self.mouse_pos_abs - self.output_pos_tl) / dims
 
     def mouse_hovers_content(self):
-        x, y = self.mouse_pos_img_norm #mouse_pos_content_norm
+        x, y = self.mouse_pos_img_norm
         return (0 <= x <= 1) and (0 <= y <= 1)
     
     def mouse_wheel_callback(self, window, x, y) -> None:
