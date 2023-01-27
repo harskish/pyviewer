@@ -39,7 +39,7 @@ try:
     import pycuda.tools
     has_pycuda = True
 except Exception:
-    print('PyCUDA with GL support not available, images will be uploaded from RAM.')
+    pass
 
 class _texture:
     '''
@@ -248,6 +248,9 @@ class viewer:
 
         if not glfw.init():
             raise RuntimeError('GLFW init failed')
+
+        if not has_pycuda:
+            print('PyCUDA with GL support not available, images will be uploaded from RAM.')
         
         try:
             with open(self._inifile, 'r') as file:

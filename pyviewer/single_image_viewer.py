@@ -254,6 +254,7 @@ def init(*args, **kwargs):
     global inst
     if inst is None:
         inst = SingleImageViewer(*args, **kwargs)
+        inst.wait_for_startup()
 
 def draw(*, img_hwc=None, img_chw=None, ignore_pause=False):
     init('SIV') # no-op if init already performed
