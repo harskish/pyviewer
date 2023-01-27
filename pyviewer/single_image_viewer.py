@@ -122,10 +122,10 @@ class SingleImageViewer:
         compute_thread = Thread(target=self.compute, args=[v])
 
         def set_glfw_callbacks(window):
-            self.window_size_callback(window, *glfw.get_window_size(window)) # set defaults
+            self.window_size_callback(window, *glfw.get_window_size(window)) # call once to set defaults
             glfw.set_window_close_callback(window, self.window_close_callback)
             glfw.set_window_size_callback(window, self.window_size_callback)
-            v.pan_handler.set_callbacks(v._window)
+            v.pan_handler.set_callbacks(window)
         v.start(self.ui, [compute_thread], set_glfw_callbacks)
 
     def window_close_callback(self, window):
