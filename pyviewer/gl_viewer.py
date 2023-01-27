@@ -397,19 +397,21 @@ class viewer:
             return True
         return False
 
+    def draw_texture(self, handle, tex_W, tex_H, scale=1, width=None, pad_h=0, pad_v=0):
+        if width == 'fill':
+            scale = imgui.get_window_content_region_width() / tex_W
+        elif width == 'fit':
+            cW, cH = [r-l for l,r in zip(
+                imgui.get_window_content_region_min(), imgui.get_window_content_region_max())]
+            scale = min((cW-pad_h)/tex_W, (cH-pad_v)/tex_H)
+        elif width is not None:
+            scale = width / tex_W
+        imgui.image(handle, tex_W*scale, tex_H*scale)
+
     def draw_image(self, name, scale=1, width=None, pad_h=0, pad_v=0):
         if name in self._images:
             img = self._images[name]
-            if width == 'fill':
-                scale = imgui.get_window_content_region_width() / img.shape[1]
-            elif width == 'fit':
-                H, W = img.shape[0:2]
-                cW, cH = [r-l for l,r in zip(
-                    imgui.get_window_content_region_min(), imgui.get_window_content_region_max())]
-                scale = min((cW-pad_h)/W, (cH-pad_v)/H)
-            elif width is not None:
-                scale = width / img.shape[1]
-            imgui.image(img.tex, img.shape[1]*scale, img.shape[0]*scale)
+            self.draw_texture(img.tex, img.shape[1], img.shape[0], scale, width, pad_h, pad_v)
 
     def close(self):
         glfw.set_window_should_close(self._window, True)

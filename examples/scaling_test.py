@@ -43,7 +43,7 @@ def build_siemens_star(origin=(0, 0), radius=1, n=100, DPI=400):
 
     return img_arr
 
-#siv.init('Async viewer', hidden=True)
+siv.init('Async viewer', hidden=False)
 
 class PATTERNS(Enum):
     GRID = 'Grid'
@@ -71,6 +71,7 @@ class Test(pyviewer.toolbar_viewer.ToolbarViewer):
             case _:
                 img[:, :, :] = np.array([255, 255, 0])
 
+        siv.draw(img_hwc=img)
         return img
     
     def draw_toolbar(self):
@@ -81,5 +82,5 @@ class Test(pyviewer.toolbar_viewer.ToolbarViewer):
         self.height = imgui.slider_int('Height', self.height, 4, 2048*4)[1]
 
 _ = Test('test_viewer')
-#siv.inst.close()
+siv.inst.close()
 print('Done')

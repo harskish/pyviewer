@@ -39,7 +39,7 @@ class PannableArea():
         if self.canvas_w == W and self.canvas_h == H:
             return
         
-        print(f'PannableArea: resizing to {W}x{H}')
+        #print(f'PannableArea: resizing to {W}x{H}')
         self.canvas_w = W
         self.canvas_h = H
 
