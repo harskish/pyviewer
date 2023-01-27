@@ -11,6 +11,14 @@
             "program": "${workspaceFolder}/examples/demo.py",
             "console": "integratedTerminal",
             "justMyCode": false
+        },
+        {
+            "name": "Scaling test",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/scaling_test.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
         }
     ]
 }

@@ -20,7 +20,7 @@ except:
     pass
 
 from .gl_viewer import viewer
-from .utils import begin_inline, normalize_image_data
+from .utils import begin_inline, normalize_image_data, PannableArea
 
 class ImgShape(ctypes.Structure):
     _fields_ = [('h', ctypes.c_uint), ('w', ctypes.c_uint), ('c', ctypes.c_uint)]
@@ -28,7 +28,7 @@ class WindowSize(ctypes.Structure):
     _fields_ = [('w', ctypes.c_uint), ('h', ctypes.c_uint)]
 
 class SingleImageViewer:
-    def __init__(self, title, key=None, dtype='uint8', vsync=True, hidden=False):
+    def __init__(self, title, key=None, dtype='uint8', vsync=True, hidden=False, pannable=True):
         self.title = title
         self.key = key or ''.join(random.choices(string.ascii_letters, k=100))
         self.ui_process = None
@@ -59,6 +59,9 @@ class SingleImageViewer:
         
         # For hiding/showing window
         self.hidden = mp.Value(ctypes.c_bool, hidden, lock=False)
+
+        # For enabling/disabling mouse pan and zoom
+        self.pan_enabled = mp.Value(ctypes.c_bool, pannable, lock=False)
 
         # Pausing (via pause key on keyboard) speeds up computation
         self.paused = mp.Value(ctypes.c_bool, False, lock=False)
@@ -115,13 +118,15 @@ class SingleImageViewer:
         v = viewer(self.title, swap_interval=int(self.vsync), hidden=self.hidden.value)
         v._window_hidden = self.hidden.value
         v.set_interp_nearest()
+        v.pan_handler = PannableArea()
         compute_thread = Thread(target=self.compute, args=[v])
-        v.start(self.ui, [compute_thread], self.set_glfw_callbacks)
 
-    def set_glfw_callbacks(self, window):
-        self.window_size_callback(window, *glfw.get_window_size(window)) # set defaults
-        glfw.set_window_close_callback(window, self.window_close_callback)
-        glfw.set_window_size_callback(window, self.window_size_callback)
+        def set_glfw_callbacks(window):
+            self.window_size_callback(window, *glfw.get_window_size(window)) # call once to set defaults
+            glfw.set_window_close_callback(window, self.window_close_callback)
+            glfw.set_window_size_callback(window, self.window_size_callback)
+            v.pan_handler.set_callbacks(window)
+        v.start(self.ui, [compute_thread], set_glfw_callbacks)
 
     def window_close_callback(self, window):
         self.started.value = False
@@ -155,11 +160,11 @@ class SingleImageViewer:
             img_hwc = np.transpose(img_chw, (1, 2, 0))
             img_chw = None        
 
-        sz = np.prod(img_hwc.shape)
-        assert sz <= np.prod(self.max_size), f'Image too large, max size {self.max_size}'
-        
         # Convert data to valid range
         img_hwc = normalize_image_data(img_hwc)
+
+        sz = np.prod(img_hwc.shape)
+        assert sz <= np.prod(self.max_size), f'Image too large, max size {self.max_size}'
 
         # Synchronize
         with self.shared_buffer.get_lock():
@@ -191,7 +196,20 @@ class SingleImageViewer:
         imgui.set_next_window_position(0, 0)
         begin_inline('Output')
         
-        v.draw_image(self.key, width='fit')
+        # Draw provided image
+        if self.pan_enabled.value:
+            tex_in = v._images.get(self.key)
+            if tex_in:
+                tex_H, tex_W, _ = tex_in.shape
+                cW, cH = [r-l for l,r in zip(
+                    imgui.get_window_content_region_min(), imgui.get_window_content_region_max())]
+                scale = min(cW / tex_W, cH / tex_H)
+                out_res = (int(tex_W*scale), int(tex_H*scale))
+                tex = v.pan_handler.draw_to_canvas(tex_in.tex, *out_res)
+                imgui.image(tex, *out_res)
+        else:
+            v.draw_image(self.key, width='fit')
+
         if self.paused.value:
             imgui.push_font(v._imgui_fonts[30])
             dl = imgui.get_window_draw_list()
@@ -236,6 +254,7 @@ def init(*args, **kwargs):
     global inst
     if inst is None:
         inst = SingleImageViewer(*args, **kwargs)
+        inst.wait_for_startup()
 
 def draw(*, img_hwc=None, img_chw=None, ignore_pause=False):
     init('SIV') # no-op if init already performed
