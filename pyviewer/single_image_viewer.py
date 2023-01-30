@@ -156,9 +156,10 @@ class SingleImageViewer:
             img_chw = img_chw.detach().cpu().numpy()
 
         # Convert chw to hwc, if provided
+        # If grayscale: no conversion needed
         if img_chw is not None:
-            img_hwc = np.transpose(img_chw, (1, 2, 0))
-            img_chw = None        
+            img_hwc = img_chw if img_chw.ndim == 2 else np.transpose(img_chw, (1, 2, 0))
+            img_chw = None
 
         # Convert data to valid range
         img_hwc = normalize_image_data(img_hwc)
@@ -233,6 +234,8 @@ class SingleImageViewer:
                 img = img.reshape(shape)
                 if img.ndim == 2:
                     img = np.expand_dims(img, -1)
+                if img.shape[2] == 1:
+                    img = np.repeat(img, 3, axis=-1)
                 
                 v.upload_image_np(self.key, img)
             elif self.paused.value:
