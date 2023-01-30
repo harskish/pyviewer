@@ -171,6 +171,9 @@ class PannableArea():
         # Reallocate if window size has changed
         self.resize_canvas(W, H)
 
+        # Keep track of content position
+        self.output_pos_tl[:] = imgui.get_item_rect_min()
+
         # Update pan & zoom state
         self.handle_pan()
 
@@ -220,7 +223,6 @@ class PannableArea():
 
     # Handle pan action
     def handle_pan(self):
-        self.output_pos_tl[:] = imgui.get_item_rect_min()
         xy = np.array(self.mouse_pos_img_norm)
         
         # Figure out what part of image is currently visible
