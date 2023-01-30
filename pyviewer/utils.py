@@ -218,7 +218,7 @@ class PannableArea():
         M = np.eye(3, dtype=np.float32)
         M[0, 2] += (self.pan[0]+self.pan_delta[0])*W
         M[1, 2] += (self.pan[1]+self.pan_delta[1])*H
-        M *= self.zoom
+        M = np.diag((self.zoom, self.zoom, 1)) @ M
         return M
 
     # Handle pan action
