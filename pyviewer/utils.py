@@ -321,11 +321,19 @@ def rgetattr(obj, key, default=None):
     return getattr(head, key, default)
 
 # Combo box that returns value, not index
-def combo_box_vals(title, values, current, height_in_items=-1, to_str=str):
+def combo_box_vals(title, values, current, height_in_items=-1, to_str: callable = str):
     values = list(values)
     curr_idx = 0 if current not in values else values.index(current)
     changed, ind = imgui.combo(title, curr_idx, [to_str(v) for v in values], height_in_items)
     return changed, values[ind]
+
+# Slider that cycles through predefined values
+# Abusing format to draw current enum value onto slider
+def enum_slider(title, values, current, to_str: callable = str):
+    values = list(values)
+    curr_idx = 0 if current not in values else values.index(current)
+    changed, idx = imgui.slider_int(title, curr_idx, 0, len(values)-1, format=to_str(current))
+    return changed, values[idx]
 
 # Imgui slider that can switch between int and float formatting at runtime
 def slider_dynamic(title, v, min, max, width=0.0):

@@ -1,5 +1,5 @@
 import imgui
-from pyviewer.utils import combo_box_vals, strict_dataclass
+from pyviewer.utils import enum_slider, combo_box_vals, strict_dataclass
 
 """ Small param wrappers for automatically creating UI widgets """
 
@@ -38,6 +38,14 @@ class EnumParam(Param):
 
     def draw_widget(self):
         return combo_box_vals(self.label, self.opts, self.value)
+
+class EnumSliderParam(Param):
+    def __init__(self, label, default_val, valid_vals=(), tooltip: str = None) -> None:
+        super().__init__(type(default_val), label, default_val, tooltip)
+        self.opts = list(valid_vals)
+
+    def draw_widget(self):
+        return enum_slider(self.label, self.opts, self.value)
 
 class BoolParam(Param):
     def __init__(self, label, default_val: bool, tooltip: str = None) -> None:
