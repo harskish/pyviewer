@@ -9,6 +9,7 @@ import time
 from . import gl_viewer
 from .utils import imgui_item_width, begin_inline, PannableArea
 from .easy_dict import EasyDict
+from .params import ParamContainer
 
 #----------------------------------------------------------------------------
 # Helper class for UIs with toolbar on the left and output image on the right
@@ -191,8 +192,13 @@ class ToolbarViewer:
 
         # User callback
         begin_inline('toolbar')
+        self.draw_toolbar_autoUI()
         self.draw_toolbar()
         imgui.end()
+
+    # Only used by AutoUIViewer
+    def draw_toolbar_autoUI(self):
+        pass
 
     def mouse_over_image(self):
         x, y = self.mouse_pos_img_norm
@@ -210,7 +216,7 @@ class ToolbarViewer:
         self.img_shape = [C, H, W]
         self.v.upload_image(self.output_key, img_hwc)
     
-    #-----------------------------------------------------------------------------------
+    #------------------------
     # User-provided functions
 
     # Draw toolbar, must be implemented
@@ -239,7 +245,23 @@ class ToolbarViewer:
         pass
 
 
-#-----------------------------------------------------------------------------
+#----------------------------------------------
+# Version that creates UI widgets automatically
+
+class AutoUIViewer(ToolbarViewer):
+    def draw_toolbar_autoUI(self):
+        if not isinstance(self.state, ParamContainer):
+            return
+
+        for _, p in self.state:
+            p.draw()
+        
+        # Draw below widgets
+        if imgui.button('Reset'):
+            for _, p in self.state:
+                p.reset()
+
+#--------------
 # Example usage
 
 def main():
