@@ -214,12 +214,23 @@ class PannableArea():
     def set_callbacks(self, glfw_window):
         self.prev_cbk = glfw.set_scroll_callback(glfw_window, self.mouse_wheel_callback)
 
-    def get_transform(self, W, H):        
+    def get_transform(self, W, H):
         M = np.eye(3, dtype=np.float32)
         M[0, 2] += (self.pan[0]+self.pan_delta[0])*W
         M[1, 2] += (self.pan[1]+self.pan_delta[1])*H
         M = np.diag((self.zoom, self.zoom, 1)) @ M
         return M
+    
+    # Set transform state from np matrix
+    # Assuming M contains only zoom & translation
+    def set_transform(self, M, W=1, H=1):
+        #assert not self.is_panning
+        assert M.shape == (3, 3)
+        self.zoom = np.sqrt(M[0, 0] * M[1, 1])
+        self.pan = (
+            M[0, 2] / W / self.zoom,
+            M[1, 2] / H / self.zoom,
+        )
 
     # Handle pan action
     def handle_pan(self):
