@@ -1,5 +1,5 @@
 import imgui
-from pyviewer.utils import enum_slider, combo_box_vals, strict_dataclass
+from pyviewer.utils import enum_slider, combo_box_vals, slider_range_int, strict_dataclass
 
 """ Small param wrappers for automatically creating UI widgets """
 
@@ -31,6 +31,13 @@ class RangeParam(Param):
         self.min = minval
         self.max = maxval
 
+class Range2Param(Param):
+    def __init__(self, type, label, default_val, minval, maxval, overlap: bool = True, tooltip: str = None) -> None:
+        super().__init__(type, label, default_val, tooltip)
+        self.min = minval
+        self.max = maxval
+        self.overlap = overlap  # allow v2 to go below v1?
+
 class EnumParam(Param):
     def __init__(self, label, default_val, valid_vals=(), tooltip: str = None) -> None:
         super().__init__(type(default_val), label, default_val, tooltip)
@@ -61,6 +68,16 @@ class IntParam(RangeParam):
     def draw_widget(self):
         return imgui.slider_int(self.label, self.value, self.min, self.max)
 
+class Int2Param(Range2Param):
+    def __init__(self, label, default_val: tuple[int], minval, maxval, overlap: bool = True, tooltip: str = None) -> None:
+        super().__init__(tuple[int], label, default_val, minval, maxval, overlap, tooltip)
+    
+    def draw_widget(self):
+        if not self.overlap:
+            return slider_range_int(*self.value, self.min, self.max, title=self.label)
+        else:
+            return imgui.slider_int2(self.label, *self.value, self.min, self.max)
+
 class FloatParam(RangeParam):
     def __init__(self, label, default_val: float, minval, maxval, tooltip: str = None) -> None:
         super().__init__(float, label, default_val, minval, maxval, tooltip)
@@ -86,7 +103,7 @@ class ParamContainer:
     
     def __setattr__(self, __name: str, __value) -> None:
         obj = super().__getattribute__(__name)
-        if isinstance(obj, Param) and isinstance(__value, obj.type):
+        if isinstance(obj, Param) and not isinstance(__value, Param):
             obj.value = __value
         else:
             super().__setattr__(__name, __value)

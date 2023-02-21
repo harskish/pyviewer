@@ -353,18 +353,18 @@ def slider_dynamic(title, v, min, max, width=0.0):
         return imgui.slider_float(title, v, min, max, format=scale_fmt)
 
 # Int2 slider that prevents overlap
-def slider_range(v1, v2, vmin, vmax, push=False, title='', width=0.0):
+def slider_range_int(v1, v2, vmin, vmax, push=False, title='', width=0.0):
     with imgui_item_width(width):
-        s, e = imgui.slider_int2(title, v1, v2, vmin, vmax)[1]
+        ch, (s, e) = imgui.slider_int2(title, v1, v2, vmin, vmax)
 
     if push:
-        return (min(s, e), max(s, e))
+        return ch, (min(s, e), max(s, e))
     elif s != v1:
-        return (min(s, e), e)
+        return ch, (min(s, e), e)
     elif e != v2:
-        return (s, max(s, e))
+        return ch, (s, max(s, e))
     else:
-        return (s, e)
+        return ch, (s, e)
 
 # Shape batch as square if possible
 def get_grid_dims(B):
