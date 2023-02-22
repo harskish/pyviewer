@@ -21,12 +21,12 @@ class ToolbarViewer:
         self.v = gl_viewer.viewer(name, hidden=hidden or batch_mode, swap_interval=1)
         self.menu_bar_height = 0
         self.toolbar_width = 300
-        self.img_shape = [3, 4, 4]
+        self.img_shape = [3, 4, 4] # (C, H, W)
         self.output_pos_tl = np.zeros(2, dtype=np.float32)
         self.output_pos_br = np.zeros(2, dtype=np.float32)
         self.output_area_tl = np.zeros(2, dtype=np.float32)
         self.output_area_br = np.zeros(2, dtype=np.float32)
-        self.content_size_px = (1, 1) # actual current content size
+        self.content_size_px = (1, 1) # actual current content size (W, H)
         self.ui_locked = True
         self.state = EasyDict()
 
