@@ -184,10 +184,9 @@ class PannableArea():
         gl.glActiveTexture(gl.GL_TEXTURE0)
         gl.glClearColor(0, 0, 0, 1)
 
-        xform = self.get_transform(1, 1)
+        xform = self.get_transform_ndc()
         xform[1, 1] *= -1  # flip y
-        xform[0:2, 2] *= 2 # adapt to larger [-1, 1] NDC range
-        xform = np.transpose(xform)
+        xform = np.transpose(xform) # GL expects [..., tX, tY, 1]
 
         gl.glUseProgram(self._shader_handle)
         gl.glUniform1i(self._attrib_location_tex, 0) # slot 0
@@ -213,13 +212,41 @@ class PannableArea():
 
     def set_callbacks(self, glfw_window):
         self.prev_cbk = glfw.set_scroll_callback(glfw_window, self.mouse_wheel_callback)
-
-    def get_transform(self, W, H):
+    
+    def get_transform_ndc(self):
+        """
+        Get current image transform.
+        Should be applied to coordinates in [-1, 1] (NDC space)
+        """
         M = np.eye(3, dtype=np.float32)
-        M[0, 2] += (self.pan[0]+self.pan_delta[0])*W
-        M[1, 2] += (self.pan[1]+self.pan_delta[1])*H
+        M[0, 2] += (self.pan[0]+self.pan_delta[0])*2
+        M[1, 2] += (self.pan[1]+self.pan_delta[1])*2
         M = np.diag((self.zoom, self.zoom, 1)) @ M
         return M
+    
+    def get_transform_scaled(self, W, H):
+        """
+        Get current image transform.
+        Should be applied to coordinates in [0, W]x[0, H]
+        """
+        M = self.get_transform_ndc()
+
+        # NDC to absolute (inputs in [O,W]x[0,H])
+        S = np.array([
+            W/2,   0, W/2,
+              0, H/2, H/2,
+              0,   0,   1,
+        ]).astype(np.float32).reshape(3, 3)
+        M = S @ M @ np.linalg.inv(S)
+
+        return M
+    
+    def get_transform(self):
+        """
+        Get current image transform.
+        Should be applied to coordinates in [0, 1]
+        """
+        return self.get_transform_scaled(1, 1)
     
     # Set transform state from np matrix
     # Assuming M contains only zoom & translation
@@ -241,7 +268,7 @@ class PannableArea():
             0.0, 0.0, 1.0,
             1.0, 1.0, 1.0,
         ]).reshape(1, 2, 3)
-        M = np.linalg.inv(self.get_transform(1, 1))
+        M = np.linalg.inv(self.get_transform())
         box = (box @ M)[0, 0:2, 0:2]
         a, b = (box[0] * (1 - xy) + box[1] * xy).tolist()
 
