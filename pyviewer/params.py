@@ -62,11 +62,21 @@ class BoolParam(Param):
         return imgui.checkbox(self.label, self.value)
 
 class IntParam(RangeParam):
-    def __init__(self, label, default_val: int, minval, maxval, tooltip: str = None) -> None:
+    def __init__(self, label, default_val: int, minval, maxval, buttons=False, tooltip: str = None) -> None:
         super().__init__(int, label, default_val, minval, maxval, tooltip)
+        self.buttons = buttons
     
     def draw_widget(self):
-        return imgui.slider_int(self.label, self.value, self.min, self.max)
+        changed, val = imgui.slider_int(self.label, self.value, self.min, self.max)
+        if self.buttons:
+            imgui.same_line()
+            if imgui.button('<'):
+                changed, val = (True, max(self.min, min(self.max, val - 1)))
+            imgui.same_line()
+            if imgui.button('>'):
+                changed, val = (True, max(self.min, min(self.max, val + 1)))
+
+        return changed, val
 
 class Int2Param(Range2Param):
     def __init__(self, label, default_val: tuple[int], minval, maxval, overlap: bool = True, tooltip: str = None) -> None:
