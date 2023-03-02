@@ -70,10 +70,10 @@ class IntParam(RangeParam):
         changed, val = imgui.slider_int(self.label, self.value, self.min, self.max)
         if self.buttons:
             imgui.same_line()
-            if imgui.button('<'):
+            if imgui.button(f'<##{self.label}'):
                 changed, val = (True, max(self.min, min(self.max, val - 1)))
             imgui.same_line()
-            if imgui.button('>'):
+            if imgui.button(f'>##{self.label}'):
                 changed, val = (True, max(self.min, min(self.max, val + 1)))
 
         return changed, val
