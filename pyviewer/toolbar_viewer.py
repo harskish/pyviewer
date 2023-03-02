@@ -9,7 +9,7 @@ import time
 from . import gl_viewer
 from .utils import imgui_item_width, begin_inline, PannableArea
 from .easy_dict import EasyDict
-from .params import ParamContainer
+from .params import ParamContainer, Param
 
 #----------------------------------------------------------------------------
 # Helper class for UIs with toolbar on the left and output image on the right
@@ -254,12 +254,14 @@ class AutoUIViewer(ToolbarViewer):
             return
 
         for _, p in self.state:
-            p.draw()
+            if isinstance(p, Param):
+                p.draw()
         
         # Draw below widgets
         if imgui.button('Reset'):
             for _, p in self.state:
-                p.reset()
+                if isinstance(p, Param):
+                    p.reset()
 
 #--------------
 # Example usage
