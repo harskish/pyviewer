@@ -253,11 +253,12 @@ if not sys.warnoptions:  # allow overriding with `-W` option
 # Just call draw() (optionally call init first)
 inst: SingleImageViewer = None
 
-def init(*args, **kwargs):
+def init(*args, sync=True, **kwargs):
     global inst
     if inst is None:
         inst = SingleImageViewer(*args, **kwargs)
-        inst.wait_for_startup()
+        if sync:
+            inst.wait_for_startup() # if calling from debugger: need to give process time to start
 
 def draw(*, img_hwc=None, img_chw=None, ignore_pause=False):
     init('SIV') # no-op if init already performed
