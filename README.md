@@ -18,5 +18,8 @@ A viewer that shows ImGui UI elemets on the left, and a large image on the right
 * Dynamically rescalable user interface
 * Window resizing to integer multiple of content resolution
 
+## Installation
+`pip install pyviewer`
+
 ## Usage
 See `examples/demo.py` for a usage example.
