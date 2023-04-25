@@ -202,12 +202,12 @@ class SingleImageViewer:
             tex_in = v._images.get(self.key)
             if tex_in:
                 tex_H, tex_W, _ = tex_in.shape
-                cW, cH = [r-l for l,r in zip(
+                cW, cH = [int(r-l) for l,r in zip(
                     imgui.get_window_content_region_min(), imgui.get_window_content_region_max())]
                 scale = min(cW / tex_W, cH / tex_H)
                 out_res = (int(tex_W*scale), int(tex_H*scale))
-                tex = v.pan_handler.draw_to_canvas(tex_in.tex, *out_res)
-                imgui.image(tex, *out_res)
+                tex = v.pan_handler.draw_to_canvas(tex_in.tex, *out_res, cW, cH)
+                imgui.image(tex, cW, cH)
         else:
             v.draw_image(self.key, width='fit')
 

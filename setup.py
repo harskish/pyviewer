@@ -9,7 +9,7 @@ if 'develop' in sys.argv:
         dependencies correctly, please use 'pip install -e .' instead.")
 
 setup(name='pyviewer',
-    version='1.3.2',
+    version='1.3.3',
     description='Interactyive python viewers',
     author='Erik Härkönen',
     author_email='erik.harkonen@hotmail.com',

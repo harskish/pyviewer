@@ -21,17 +21,23 @@ class ToolbarViewer:
         self.v = gl_viewer.viewer(name, hidden=hidden or batch_mode, swap_interval=1)
         self.menu_bar_height = 0
         self.toolbar_width = 300
-        self.img_shape = [3, 4, 4] # (C, H, W)
+        # Size of latest image data in texels, (C, H, W)
+        self.img_shape = [3, 4, 4]
+        # Position of drawn imgui.image element,
+        # relative to glfw window top-left
         self.output_pos_tl = np.zeros(2, dtype=np.float32)
         self.output_pos_br = np.zeros(2, dtype=np.float32)
+        # Size in pixels of drawn imgui.image, (W, H)
+        self.content_size_px = (1, 1)
+        # Size of available canvas
         self.output_area_tl = np.zeros(2, dtype=np.float32)
         self.output_area_br = np.zeros(2, dtype=np.float32)
-        self.content_size_px = (1, 1) # actual current content size (W, H)
         self.ui_locked = True
         self.state = EasyDict()
 
         # Support image zoom and pan
         self.pan_handler = PannableArea()
+        self.pan_handler.clear_color = (0.101, 0.101, 0.101, 1.00) # match theme_deep_dark
         self.pan_enabled = True
         
         # User-provided
@@ -104,24 +110,33 @@ class ToolbarViewer:
 
         begin_inline('Output')
         BOTTOM_PAD = max(self.pad_bottom, int(round(20 * s)) + 6) # extra user content below image
+        
+        # Calculate size of current (virtual) imgui.window
         rmin, rmax = imgui.get_window_content_region_min(), imgui.get_window_content_region_max()
         cW, cH = [int(r-l) for l,r in zip(rmin, rmax)]
-        aspect = self.img_shape[2] / self.img_shape[1]
-        out_size = min(cW, aspect*(cH - BOTTOM_PAD))
-        self.content_size_px = (int(out_size), int(out_size / aspect))
         
-        # Draw provided image
+        # Compute size of image that fills smaller dimension
+        # Bottom area for integer scaling buttons taken into account
+        aspect = self.img_shape[2] / self.img_shape[1]
+        out_width = min(cW, aspect*(cH - BOTTOM_PAD))
+        self.content_size_px = (int(out_width), int(out_width / aspect))
+        
+        # Create imgui.image from provided data
         if self.pan_enabled:
             tex_in = v._images.get(self.output_key)
             if tex_in:
-                tex = self.pan_handler.draw_to_canvas(tex_in.tex, *self.content_size_px)
-                imgui.image(tex, *self.content_size_px)
+                canvas_size = (cW, cH - BOTTOM_PAD)
+                tex = self.pan_handler.draw_to_canvas(tex_in.tex, *self.content_size_px, *canvas_size)
+                imgui.image(tex, *canvas_size)
         else:
-            v.draw_image(self.output_key, width=out_size)
+            v.draw_image(self.output_key, width=out_width)
 
-        # Potential space for content
+        # Imgui.image drawn above
+        # => get position where it was drawn
         self.output_pos_tl[:] = imgui.get_item_rect_min()
         self.output_pos_br[:] = imgui.get_item_rect_max()
+        
+        # Record maximum available canvas size
         self.output_area_tl[:] = self.output_pos_tl
         self.output_area_br[:] = np.array(rmax) - np.array([0, BOTTOM_PAD])
 

@@ -24,6 +24,7 @@ class PannableArea():
         self.pan_start = (0, 0)
         self.pan_delta = (0, 0)
         self.zoom: float = 1.0
+        self.clear_color = (0, 0, 0, 1) # in [0, 1]
 
         # Canvas onto which resmapled image is drawn
         self.canvas_tex = None
@@ -157,7 +158,9 @@ class PannableArea():
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._vbo_handle)
         gl.glBufferData(gl.GL_ARRAY_BUFFER, 4 * vertex_size, vertices, gl.GL_STATIC_DRAW)
 
-    def draw_to_canvas(self, texture_in, W, H):
+    # iW, iH = image size
+    # cW, cH = canvas size
+    def draw_to_canvas(self, texture_in, iW, iH, cW, cH):
         last_texture = gl.glGetIntegerv(gl.GL_TEXTURE_BINDING_2D)
         last_array_buffer = gl.glGetIntegerv(gl.GL_ARRAY_BUFFER_BINDING)
         last_vertex_array = gl.glGetIntegerv(gl.GL_VERTEX_ARRAY_BINDING)
@@ -166,10 +169,10 @@ class PannableArea():
         last_viewport = gl.glGetIntegerv(gl.GL_VIEWPORT)
 
         if self.canvas_fb is None:
-            self.init_gl(W, H)
+            self.init_gl(cW, cH)
 
         # Reallocate if window size has changed
-        self.resize_canvas(W, H)
+        self.resize_canvas(cW, cH)
 
         # Keep track of content position
         self.output_pos_tl[:] = imgui.get_item_rect_min()
@@ -182,11 +185,19 @@ class PannableArea():
         gl.glDisable(gl.GL_DEPTH_TEST)
         gl.glDisable(gl.GL_SCISSOR_TEST)
         gl.glActiveTexture(gl.GL_TEXTURE0)
-        gl.glClearColor(0, 0, 0, 1)
+        gl.glClearColor(*self.clear_color)
 
+        # Get current pan/zoom xform
         xform = self.get_transform_ndc()
         xform[1, 1] *= -1  # flip y
-        xform = np.transpose(xform) # GL expects [..., tX, tY, 1]
+
+        # Image size is computed to fill smaller canvas dimension
+        # Account for this scaling to prevent image stretching
+        scale = np.diag([iW/cW, iH/cH, 1])
+        xform = xform @ scale
+        
+        # GL expects [..., tX, tY, 1]
+        xform = np.transpose(xform)
 
         gl.glUseProgram(self._shader_handle)
         gl.glUniform1i(self._attrib_location_tex, 0) # slot 0
