@@ -19,7 +19,7 @@ try:
 except:
     pass
 
-from .gl_viewer import viewer
+from . import gl_viewer
 from .utils import begin_inline, normalize_image_data, PannableArea
 
 class ImgShape(ctypes.Structure):
@@ -115,7 +115,12 @@ class SingleImageViewer:
         self.ui_process.join()
 
     def process_func(self):
-        v = viewer(self.title, swap_interval=int(self.vsync), hidden=self.hidden.value)
+        # Avoid double cuda init issues
+        # (single image viewer cannot use GPU memory anyway)
+        gl_viewer.has_pycuda = False
+        gl_viewer.cuda_synchronize = lambda : None
+        
+        v = gl_viewer.viewer(self.title, swap_interval=int(self.vsync), hidden=self.hidden.value)
         v._window_hidden = self.hidden.value
         v.set_interp_nearest()
         v.pan_handler = PannableArea()
@@ -255,6 +260,7 @@ inst: SingleImageViewer = None
 
 def init(*args, sync=True, **kwargs):
     global inst
+
     if inst is None:
         inst = SingleImageViewer(*args, **kwargs)
         if sync:
