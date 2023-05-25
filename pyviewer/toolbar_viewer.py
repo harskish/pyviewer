@@ -17,21 +17,22 @@ from .params import ParamContainer, Param
 class ToolbarViewer:
     def __init__(self, name, pad_bottom=0, hidden=False, batch_mode=False):
         self.output_key = ''.join(random.choices(string.ascii_letters, k=20))
-        self.pad_bottom = pad_bottom
+        self._user_pad_bottom = pad_bottom
         self.v = gl_viewer.viewer(name, hidden=hidden or batch_mode, swap_interval=1)
-        self.menu_bar_height = 0
-        self.toolbar_width = 300
+        self.menu_bar_height = self.v.font_size + 2*imgui.get_style().frame_padding.y
+
+        W, H = glfw.get_window_size(self.v._window)
+
         # Size of latest image data in texels, (C, H, W)
         self.img_shape = [3, 4, 4]
         # Position of drawn imgui.image element,
-        # relative to glfw window top-left
-        self.output_pos_tl = np.zeros(2, dtype=np.float32)
-        self.output_pos_br = np.zeros(2, dtype=np.float32)
+        # relative to glfw window top-left.
+        # Initial value not exactly correct but good initial guess
+        px, py = np.array(imgui.get_style().window_padding)
+        self.output_pos_tl = np.array([self.toolbar_width + px, self.menu_bar_height + py], dtype=np.float32)
+        self.output_pos_br = np.array([W - px, H - self.pad_bottom - py], dtype=np.float32)
         # Size in pixels of drawn imgui.image, (W, H)
         self.content_size_px = (1, 1)
-        # Size of available canvas
-        self.output_area_tl = np.zeros(2, dtype=np.float32)
-        self.output_area_br = np.zeros(2, dtype=np.float32)
         self.ui_locked = True
         self.state = EasyDict()
 
@@ -56,6 +57,15 @@ class ToolbarViewer:
             self.setup_callbacks(window)
             self.pan_handler.set_callbacks(window)
         self.v.start(self._ui_main, (compute_thread), init_callbacks)
+
+    # Extra user content below image
+    @property
+    def pad_bottom(self):
+        return max(self._user_pad_bottom, int(round(20 * self.v.ui_scale)) + 6)
+
+    @property
+    def toolbar_width(self):
+        return int(round(350 * self.v.ui_scale))
 
     @property
     def font_size(self):
@@ -109,7 +119,7 @@ class ToolbarViewer:
         s = v.ui_scale
 
         begin_inline('Output')
-        BOTTOM_PAD = max(self.pad_bottom, int(round(20 * s)) + 6) # extra user content below image
+        BOTTOM_PAD = self.pad_bottom
         
         # Calculate size of current (virtual) imgui.window
         rmin, rmax = imgui.get_window_content_region_min(), imgui.get_window_content_region_max()
@@ -135,10 +145,6 @@ class ToolbarViewer:
         # => get position where it was drawn
         self.output_pos_tl[:] = imgui.get_item_rect_min()
         self.output_pos_br[:] = imgui.get_item_rect_max()
-        
-        # Record maximum available canvas size
-        self.output_area_tl[:] = self.output_pos_tl
-        self.output_area_br[:] = np.array(rmax) - np.array([0, BOTTOM_PAD])
 
         # Equal spacing
         imgui.columns(2, 'outputBottom', border=False)
@@ -201,7 +207,6 @@ class ToolbarViewer:
         # Constant width, height dynamic based on output window
         v = self.v
         _, H = glfw.get_window_size(v._window)
-        self.toolbar_width = 350 * v.ui_scale
         imgui.set_next_window_size(self.toolbar_width, H - self.menu_bar_height)
         imgui.set_next_window_position(0, self.menu_bar_height)
 
@@ -240,7 +245,7 @@ class ToolbarViewer:
 
     # Draw extra UI elements below output image
     def draw_output_extra(self):
-        if self.pad_bottom > 0:
+        if self._user_pad_bottom > 0:
             raise RuntimeError('Not implemented')
 
     # Draw overlays using main window draw list

@@ -324,6 +324,7 @@ class viewer:
 
         self._context_lock = mp.Lock()
         self._context_tid = None # id of thread in critical section
+        self.set_ui_scale(self.ui_scale)
 
     def get_default_font(self):
         return str(Path(__file__).parent / 'MPLUSRounded1c-Medium.ttf')
@@ -476,8 +477,6 @@ class viewer:
 
         for i in range(len(workers)):
             workers[i].start()
-
-        self.set_ui_scale(self.ui_scale)        
         
         with self.lock():
             impl = GlfwRenderer(self._window)
