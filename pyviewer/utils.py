@@ -403,6 +403,20 @@ def slider_range_int(v1, v2, vmin, vmax, push=False, title='', width=0.0):
         return ch, (s, max(s, e))
     else:
         return ch, (s, e)
+    
+# Float2 slider that prevents overlap
+def slider_range_float(v1, v2, vmin, vmax, push=False, title='', width=0.0):
+    with imgui_item_width(width):
+        ch, (s, e) = imgui.slider_float2(title, v1, v2, vmin, vmax)
+
+    if push:
+        return ch, (min(s, e), max(s, e))
+    elif s != v1:
+        return ch, (min(s, e), e)
+    elif e != v2:
+        return ch, (s, max(s, e))
+    else:
+        return ch, (s, e)
 
 # Shape batch as square if possible
 def get_grid_dims(B):
