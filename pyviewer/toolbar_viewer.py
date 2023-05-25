@@ -186,6 +186,9 @@ class ToolbarViewer:
 
             imgui.text('') # needed for imgui.same_line
 
+            # Custom user menu items
+            self.draw_menu()
+
             # UI scale slider
             if not self.ui_locked:
                 imgui.same_line(position=imgui.get_window_width()-300-25*s)
@@ -250,6 +253,9 @@ class ToolbarViewer:
 
     # Draw overlays using main window draw list
     def draw_overlays(self, draw_list):
+        pass
+
+    def draw_menu(self):
         pass
     
     # Perform computation, returning single np/torch image, or None
