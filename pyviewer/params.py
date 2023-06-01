@@ -1,5 +1,6 @@
 import imgui
 from pyviewer.utils import enum_slider, combo_box_vals, slider_range_int, slider_range_float, strict_dataclass
+from typing import Tuple
 
 """ Small param wrappers for automatically creating UI widgets """
 
@@ -79,8 +80,8 @@ class IntParam(_RangeParam):
         return changed, val
 
 class Int2Param(_Range2Param):
-    def __init__(self, label, default_val: tuple[int], minval, maxval, overlap: bool = True, tooltip: str = None) -> None:
-        super().__init__(tuple[int], label, default_val, minval, maxval, overlap, tooltip)
+    def __init__(self, label, default_val: Tuple[int], minval, maxval, overlap: bool = True, tooltip: str = None) -> None:
+        super().__init__(Tuple[int], label, default_val, minval, maxval, overlap, tooltip)
     
     def draw_widget(self):
         if not self.overlap:
@@ -96,8 +97,8 @@ class FloatParam(_RangeParam):
         return imgui.slider_float(self.label, self.value, self.min, self.max)
     
 class Float2Param(_Range2Param):
-    def __init__(self, label, default_val: tuple[float], minval, maxval, overlap: bool = True, tooltip: str = None) -> None:
-        super().__init__(tuple[float], label, default_val, minval, maxval, overlap, tooltip)
+    def __init__(self, label, default_val: Tuple[float], minval, maxval, overlap: bool = True, tooltip: str = None) -> None:
+        super().__init__(Tuple[float], label, default_val, minval, maxval, overlap, tooltip)
     
     def draw_widget(self):
         if not self.overlap:

@@ -8,8 +8,13 @@ if 'develop' in sys.argv:
     print("WARNING: 'python setup.py develop' won't install \
         dependencies correctly, please use 'pip install -e .' instead.")
 
+# Workflow:
+# Increment version number (together with other changes)
+# git commit
+# git tag -a "vX.X.X" -m "vX.X.X"  (only annotated tags show up in GitHub)
+# git push --follow-tags
 setup(name='pyviewer',
-    version='1.3.5',
+    version='1.3.6',
     description='Interactyive python viewers',
     author='Erik Härkönen',
     author_email='erik.harkonen@hotmail.com',
