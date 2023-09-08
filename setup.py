@@ -14,7 +14,7 @@ if 'develop' in sys.argv:
 # git tag -a "vX.X.X" -m "vX.X.X"  (only annotated tags show up in GitHub)
 # git push --follow-tags
 setup(name='pyviewer',
-    version='1.3.6',
+    version='1.3.7',
     description='Interactyive python viewers',
     author='Erik Härkönen',
     author_email='erik.harkonen@hotmail.com',

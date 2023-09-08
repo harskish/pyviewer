@@ -266,6 +266,14 @@ def init(*args, sync=True, **kwargs):
         if sync:
             inst.wait_for_startup() # if calling from debugger: need to give process time to start
 
+# No-op if already open, therwise (re)start
+def show_window():
+    # Elif to avoid immediate restart if first init
+    if inst is None:
+        init('SIV')
+    elif not inst.started.value:
+        inst.restart()
+
 def draw(*, img_hwc=None, img_chw=None, ignore_pause=False):
     init('SIV') # no-op if init already performed
     inst.draw(img_hwc, img_chw, ignore_pause)
