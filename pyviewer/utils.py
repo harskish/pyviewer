@@ -160,7 +160,7 @@ class PannableArea():
 
     # iW, iH = image size
     # cW, cH = canvas size
-    def draw_to_canvas(self, texture_in, iW, iH, cW, cH):
+    def draw_to_canvas(self, texture_in, iW, iH, cW, cH, pan_enabled=True):
         last_texture = gl.glGetIntegerv(gl.GL_TEXTURE_BINDING_2D)
         last_array_buffer = gl.glGetIntegerv(gl.GL_ARRAY_BUFFER_BINDING)
         last_vertex_array = gl.glGetIntegerv(gl.GL_VERTEX_ARRAY_BINDING)
@@ -188,7 +188,7 @@ class PannableArea():
         gl.glClearColor(*self.clear_color)
 
         # Get current pan/zoom xform
-        xform = self.get_transform_ndc()
+        xform = self.get_transform_ndc() if pan_enabled else np.eye(3)
         xform[1, 1] *= -1  # flip y
 
         # Image size is computed to fill smaller canvas dimension

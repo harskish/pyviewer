@@ -132,14 +132,11 @@ class ToolbarViewer:
         self.content_size_px = (int(out_width), int(out_width / aspect))
         
         # Create imgui.image from provided data
-        if self.pan_enabled:
-            tex_in = v._images.get(self.output_key)
-            if tex_in:
-                canvas_size = (cW, cH - BOTTOM_PAD)
-                tex = self.pan_handler.draw_to_canvas(tex_in.tex, *self.content_size_px, *canvas_size)
-                imgui.image(tex, *canvas_size)
-        else:
-            v.draw_image(self.output_key, width=out_width)
+        tex_in = v._images.get(self.output_key)
+        if tex_in:
+            canvas_size = (cW, cH - BOTTOM_PAD)
+            tex = self.pan_handler.draw_to_canvas(tex_in.tex, *self.content_size_px, *canvas_size, self.pan_enabled)
+            imgui.image(tex, *canvas_size)
 
         # Imgui.image drawn above
         # => get position where it was drawn
