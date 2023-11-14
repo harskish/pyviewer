@@ -14,7 +14,7 @@ A viewer for showing single fullscreen images without other UI elements. Runs in
 A viewer that shows ImGui UI elemets on the left, and a large image on the right. Runs in the main process, but supports visualizing torch tensors directly from GPU memory (unlike single_image_viewer).
 
 ## Other features
-* Bundles a custom build of PyImGui with plotting support (via ImPlot)
+* Bundles a [custom build](https://github.com/harskish/pyplotgui) of PyImGui with plotting support (via ImPlot)
 * Dynamically rescalable user interface
 * Window resizing to integer multiple of content resolution
 
