@@ -27,10 +27,12 @@ setup(name='pyviewer',
         'pyopengl>3.0.0',
         'pyplotgui',  # custom imgui+implot package
         'light-process==0.0.7',
+        'ninja', # for custom OP
     ],
     include_package_data=True,
     package_data={
-        '': ['*.ttf'] # embedded fonts
+        '': ['*.ttf'], # embedded fonts
+        '': ['custom_ops/*.cpp'], # custom CUDA op
     },
     long_description=Path('README.md').read_text()
         .replace('docs/screenshot.jpg', 'https://github.com/harskish/pyviewer/raw/master/docs/screenshot.jpg'),

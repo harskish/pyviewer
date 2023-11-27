@@ -41,17 +41,40 @@ try:
 except Exception:
     pass
 
+# CUDA-GL copy via PyTorch extension
+pt_plugin = None
+try:
+    from . import custom_ops
+    pt_plugin = custom_ops.get_plugin('visualizer_plugin', 'visualizer.cpp', Path(__file__).parent / './custom_ops')
+except Exception:
+    pass
+
+class PTExtMapper:
+    tex: int
+    resource: int # uint64_t
+    
+    def __init__(self, tex) -> None:
+        self.tex = tex
+        self.resource = pt_plugin.register(tex)
+    
+    def unregister(self) -> None:
+        pt_plugin.unregister(self.resource)
+
+    def upload(self, ptr: int, W: int, H: int, N: int) -> None:
+        pt_plugin.upload(ptr, W, H, N, self.resource) # map, copy, unmap
+
 class _texture:
     '''
     This class maps torch tensors to gl textures without a CPU roundtrip.
     '''
     def __init__(self, min_mag_filter=gl.GL_LINEAR):
+        # Can be shared between py and c++
         self.tex = gl.glGenTextures(1)
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex) # need to bind to modify
         # sets repeat and filtering parameters; change the second value of any tuple to change the value
         for params in ((gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT), (gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT), (gl.GL_TEXTURE_MIN_FILTER, min_mag_filter), (gl.GL_TEXTURE_MAG_FILTER, min_mag_filter)):
             gl.glTexParameteri(gl.GL_TEXTURE_2D, *params)
-        self.mapper = None
+        self.mapper = None  # pycuda mapper or torch extension cudaGraphicsResource_t
         self.is_fp = True
         self.shape = [0,0]
 
@@ -117,7 +140,7 @@ class _texture:
         assert img.shape[2] < min(img.shape[0], img.shape[1]), "Please provide a HWC tensor"
         assert img.dtype in [torch.float32, torch.uint8], 'Only fp32 and u8 supported'
 
-        if not has_pycuda:
+        if not has_pycuda and pt_plugin is None:
             return self.upload_np(img.detach().cpu().numpy())
         
         # OpenGL stores RGBA-strided data always
@@ -131,7 +154,7 @@ class _texture:
 
     # Copy from cuda pointer
     def upload_ptr(self, ptr, shape, is_fp32):
-        assert has_pycuda, 'PyCUDA-GL not available, cannot upload using raw pointer'
+        assert has_pycuda or pt_plugin is not None, 'PyCUDA-GL or PT plugin needed for pointer upload'
         has_alpha = shape[-1] == 4
 
         # reallocate if shape changed or data type changed from np to torch
@@ -165,12 +188,11 @@ class _texture:
 
             gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, internal_fmt, shape[1], shape[0], 0, incoming_fmt, incoming_dtype, None)
             gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
-            self.mapper = cuda_gl.RegisteredImage(int(self.tex), gl.GL_TEXTURE_2D, pycuda.gl.graphics_map_flags.WRITE_DISCARD)
+            if has_pycuda:
+                self.mapper = cuda_gl.RegisteredImage(int(self.tex), gl.GL_TEXTURE_2D, pycuda.gl.graphics_map_flags.WRITE_DISCARD)
+            else:
+                self.mapper = PTExtMapper(int(self.tex))
         
-        # map texture to cuda ptr
-        tex_data = self.mapper.map()
-        tex_arr = tex_data.array(0, 0)
-
         # Cast to python integer type
         ptr_int = int(ptr)
         assert ptr_int == ptr, 'Device pointer overflow'
@@ -178,20 +200,26 @@ class _texture:
         N = 4 if is_fp32 else 1
         H, W, C = shape
         assert C == 4, 'Input data must be RGBA' # OpenGL always stores alpha channel
-        
-        # copy from torch tensor to mapped gl texture (avoid cpu roundtrip)
-        # https://documen.tician.de/pycuda/driver.html#pycuda.driver.Memcpy2D
-        cpy = pycuda.driver.Memcpy2D()
-        cpy.set_src_device(ptr_int)
-        cpy.set_dst_array(tex_arr)
-        cpy.width_in_bytes = W*C*N  # Number of bytes to copy for each row in the transfer
-        cpy.src_pitch = W*C*N       # Size of a row in bytes at the origin of the copy
-        cpy.dst_pitch = W*C*N       # Size of a row in bytes at the destination of the copy
-        cpy.height = H
-        cpy(aligned=False)
 
-        # cleanup
-        tex_data.unmap()
+        if has_pycuda:
+            # map texture to cuda ptr
+            tex_data = self.mapper.map()
+            tex_arr = tex_data.array(0, 0)
+            
+            # copy from torch tensor to mapped gl texture (avoid cpu roundtrip)
+            # https://documen.tician.de/pycuda/driver.html#pycuda.driver.Memcpy2D
+            cpy = pycuda.driver.Memcpy2D()
+            cpy.set_src_device(ptr_int)
+            cpy.set_dst_array(tex_arr)
+            cpy.width_in_bytes = W*C*N  # Number of bytes to copy for each row in the transfer
+            cpy.src_pitch = W*C*N       # Size of a row in bytes at the origin of the copy
+            cpy.dst_pitch = W*C*N       # Size of a row in bytes at the destination of the copy
+            cpy.height = H
+            cpy(aligned=False)
+            tex_data.unmap()
+        else:
+            self.mapper.upload(ptr_int, W, H, C*N)
+
         cuda_synchronize()
 
 class _editable:
@@ -249,8 +277,8 @@ class viewer:
         if not glfw.init():
             raise RuntimeError('GLFW init failed')
 
-        if not has_pycuda:
-            print('PyCUDA with GL support not available, images will be uploaded from RAM.')
+        if not has_pycuda and pt_plugin is None:
+            print('Neither PyCUDA-GL nor Torch+CUDA available, images will be uploaded from RAM.')
         
         try:
             with open(self._inifile, 'r') as file:
