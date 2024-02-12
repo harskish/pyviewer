@@ -46,7 +46,7 @@ void upload(uint64_t data_ptr, int width, int height, int pitch, uint64_t ptr) {
     cudaErrors(cudaGraphicsUnmapResources(1, &resource));
 }
 
-PYBIND11_MODULE(visualizer_plugin, m) {
+PYBIND11_MODULE(cuda_gl_interop, m) {
     m.def("register", &register_resource, "register resource");
     m.def("unregister", &unregister_resource, "unregister resource");
     m.def("upload", &upload, "upload image data");

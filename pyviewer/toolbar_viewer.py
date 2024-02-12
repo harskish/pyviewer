@@ -130,6 +130,9 @@ class ToolbarViewer:
         aspect = self.img_shape[2] / self.img_shape[1]
         out_width = min(cW, aspect*(cH - BOTTOM_PAD))
         self.content_size_px = (int(out_width), int(out_width / aspect))
+
+        # Draw UI elements before image
+        self.draw_pre()
         
         # Create imgui.image from provided data
         tex_in = v._images.get(self.output_key)
@@ -247,6 +250,12 @@ class ToolbarViewer:
     def draw_output_extra(self):
         if self._user_pad_bottom > 0:
             raise RuntimeError('Not implemented')
+    
+    # Draw UI elements before main image is drawn
+    # Can be (ab)used to draw only plots by never
+    # returning an image form compute()
+    def draw_pre(self):
+        pass
 
     # Draw overlays using main window draw list
     def draw_overlays(self, draw_list):

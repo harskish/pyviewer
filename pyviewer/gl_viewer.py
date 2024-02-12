@@ -45,7 +45,7 @@ except Exception:
 pt_plugin = None
 try:
     from . import custom_ops
-    pt_plugin = custom_ops.get_plugin('visualizer_plugin', 'visualizer.cpp', Path(__file__).parent / './custom_ops')
+    pt_plugin = custom_ops.get_plugin('cuda_gl_interop', 'cuda_gl_interop.cpp', Path(__file__).parent / './custom_ops')
 except Exception:
     pass
 
