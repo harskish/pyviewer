@@ -357,7 +357,6 @@ class viewer:
     def get_default_font(self):
         font = Path(__file__).parent / 'MPLUSRounded1c-Medium.ttf'
         assert font.is_file(), f'Font file missing: "{font.resolve()}"'
-        print("Found font:", font)
         return str(font)
     
     def push_context(self):
