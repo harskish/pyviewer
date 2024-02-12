@@ -26,6 +26,9 @@ jobs:
       
       - name: Check metadata
         run: pipx run twine check dist/*
+      
+      - name: Print whl contents
+        run: unzip -l dist/pyviewer-*.whl
 
   upload_pypi:
     needs: [dist]

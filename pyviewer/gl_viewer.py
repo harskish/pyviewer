@@ -340,7 +340,7 @@ class viewer:
 
         font = self.get_default_font()
 
-        # MPLUSRounded1c-Medium.tff: no content for sizes >35
+        # MPLUSRounded1c-Medium.ttf: no content for sizes >35
         # Apple M1, WSL have have low texture count limits
         font_sizes = range(8, 36, 1) if 'win32' in platform else range(8, 36, 2)
         font_sizes = [int(s) for s in font_sizes]
@@ -355,7 +355,10 @@ class viewer:
         self.set_ui_scale(self.ui_scale)
 
     def get_default_font(self):
-        return str(Path(__file__).parent / 'MPLUSRounded1c-Medium.ttf')
+        font = Path(__file__).parent / 'MPLUSRounded1c-Medium.ttf'
+        assert font.is_file(), f'Font file missing: "{font.resolve()}"'
+        print("Found font:", font)
+        return str(font)
     
     def push_context(self):
         if has_pycuda:
