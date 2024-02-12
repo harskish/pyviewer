@@ -17,7 +17,7 @@ if 'develop' in sys.argv:
 # Test package_data changes with:
 # `rm -r build\ && pip wheel . && unzip -l pyviewer-*.whl`
 setup(name='pyviewer',
-    version='1.3.9',
+    version='1.3.10',
     description='Interactyive python viewers',
     author='Erik Härkönen',
     author_email='erik.harkonen@hotmail.com',
@@ -34,8 +34,10 @@ setup(name='pyviewer',
     ],
     include_package_data=True,
     package_data={
-        '': ['*.ttf'], # embedded fonts
-        '': ['custom_ops/*.cpp'], # custom CUDA op
+        'pyviewer': [
+            '*.ttf',            # embedded fonts
+            'custom_ops/*.cpp', # custom CUDA op
+        ],
     },
     long_description=Path('README.md').read_text()
         .replace('docs/screenshot.jpg', 'https://github.com/harskish/pyviewer/raw/master/docs/screenshot.jpg'),
