@@ -56,6 +56,8 @@ def get_plugin(plugin_name: str, source_files: tuple or str, source_folder: str 
     original = os.getcwd()
     os.chdir(source_folder)
 
-    cpp.load(verbose=verbose, name=plugin_name, extra_cflags=cflags, extra_cuda_cflags=['-O2'], sources=source_files, extra_ldflags=ldflags, with_cuda=True)
-    os.chdir(original)
+    try:
+        cpp.load(verbose=verbose, name=plugin_name, extra_cflags=cflags, extra_cuda_cflags=['-O2'], sources=source_files, extra_ldflags=ldflags, with_cuda=True)
+    finally:
+        os.chdir(original)
     return importlib.import_module(plugin_name)
