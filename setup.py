@@ -19,7 +19,7 @@ if 'develop' in sys.argv:
 # or with: `rm -r build\ && pip wheel . && unzip -l pyviewer-*.whl`
 # (not same environment, but good first step)
 setup(name='pyviewer',
-    version='1.3.11',
+    version='1.3.12',
     description='Interactyive python viewers',
     author='Erik Härkönen',
     author_email='erik.harkonen@hotmail.com',

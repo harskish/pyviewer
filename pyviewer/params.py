@@ -108,7 +108,6 @@ class Float2Param(_Range2Param):
     
 ##########################################
 # Container that exposes raw values
-
 @strict_dataclass
 class ParamContainer:
     def __iter__(self):
@@ -128,3 +127,12 @@ class ParamContainer:
             obj.value = __value
         else:
             super().__setattr__(__name, __value)
+            
+    def __todict__(self):
+        ret = {}
+        for attr, _ in self.__dataclass_fields__.items():
+            ret[attr] = self.__getattribute__(attr)
+        return ret
+
+    def __str__(self):
+        return str(self.__todict__())

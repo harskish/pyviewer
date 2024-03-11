@@ -5,6 +5,8 @@ import random
 import string
 import numpy as np
 import time
+from pathlib import Path
+from functools import partial
 
 from . import gl_viewer
 from .utils import imgui_item_width, begin_inline, PannableArea
@@ -13,6 +15,9 @@ from .params import ParamContainer, Param
 
 #----------------------------------------------------------------------------
 # Helper class for UIs with toolbar on the left and output image on the right
+
+def file_drop_callback_wrapper(window, paths, callback: callable):
+    return callback([Path(p) for p in paths])
 
 class ToolbarViewer:
     def __init__(self, name, pad_bottom=0, hidden=False, batch_mode=False):
@@ -54,6 +59,8 @@ class ToolbarViewer:
     def start_UI(self):
         compute_thread = threading.Thread(target=self._compute_loop, args=[])
         def init_callbacks(window):
+            glfw.set_drop_callback(window,
+                partial(file_drop_callback_wrapper, callback=self.drag_and_drop_callback))
             self.setup_callbacks(window)
             self.pan_handler.set_callbacks(window)
         self.v.start(self._ui_main, (compute_thread), init_callbacks)
@@ -272,10 +279,13 @@ class ToolbarViewer:
     def setup_state(self):
         pass
 
-    # GLFW callbacks
+    # Manual GLFW callbacks
+    # Overrides the ones below
     def setup_callbacks(self, window):
         pass
 
+    def drag_and_drop_callback(self, paths: list[Path]):
+        pass
 
 #----------------------------------------------
 # Version that creates UI widgets automatically
