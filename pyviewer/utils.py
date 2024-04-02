@@ -3,6 +3,8 @@ import imgui
 import contextlib
 from io import BytesIO
 from pathlib import Path
+from functools import partial
+import shutil
 import os
 import glfw
 import random
@@ -477,53 +479,33 @@ def seeds_to_latents(seeds, n_dims=512):
 
 # File copy with progress bar
 # For slow network drives etc.
-def copy_with_progress(pth_from, pth_to):
-    from tqdm import tqdm
+def copy_with_progress(pth_from: Path, pth_to: Path):
     os.makedirs(pth_to.parent, exist_ok=True)
-    size = int(os.path.getsize(pth_from))
-    fin = open(pth_from, 'rb')
-    fout = open(pth_to, 'ab')
-
-    try:
-        with tqdm(ncols=80, total=size, bar_format=pth_from.name + ' {l_bar}{bar} | Remaining: {remaining}') as pbar:
-            while True:
-                buf = fin.read(4*2**20) # 4 MiB
-                if len(buf) == 0:
-                    break
-                fout.write(buf)
-                pbar.update(len(buf))
-    except Exception as e:
-        print(f'File copy failed: {e}')
-    finally:
-        fin.close()
-        fout.close()
+    return shutil.copyfileobj(open_prog(pth_from, 'rb', pth_to.name), open(pth_to, 'ab'))
 
 # File open with progress bar
 # For slow network drives etc.
 # Supports context manager
-def open_prog(pth, mode):
+def open_prog(pth, mode, name=None):
     from tqdm import tqdm
-    size = int(os.path.getsize(pth))
-    fin = open(pth, 'rb')
 
-    assert mode == 'rb', 'Only rb supported'
-    fout = BytesIO()
+    assert mode in ['r', 'rb'], 'Only r and rb supported'
+    total_size = int(os.path.getsize(pth))
+    label = Path(pth).name if name is None else name
+    pbar = tqdm(ncols=80, total=total_size, bar_format=f'{label} {{l_bar}}{{bar}}| Remaining: {{remaining}}', disable=False)
+    handle = open(pth, mode)
 
-    try:
-        with tqdm(ncols=80, total=size, bar_format=Path(pth).name + ' {l_bar}{bar}| Remaining: {remaining}') as pbar:
-            while True:
-                buf = fin.read(4*2**20) # 4 MiB
-                if len(buf) == 0:
-                    break
-                fout.write(buf)
-                pbar.update(len(buf))
-    except Exception as e:
-        print(f'File copy failed: {e}')
-    finally:
-        fin.close()
-        fout.seek(0)
+    def newread(size, orig=None):
+        pbar.update(size)
+        return orig(size)
+    handle.read = partial(newread, orig=handle.read)
 
-    return fout
+    def newreadinto(memory, orig=None):
+        pbar.update(memory.nbytes)
+        return orig(memory)
+    handle.readinto = partial(newreadinto, orig=handle.readinto)
+    
+    return handle
 
 # Convert input image to valid range for showing
 # Output converted to target dtype *after* scaling
