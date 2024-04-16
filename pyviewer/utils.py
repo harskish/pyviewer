@@ -492,18 +492,29 @@ def open_prog(pth, mode, name=None):
     assert mode in ['r', 'rb'], 'Only r and rb supported'
     total_size = int(os.path.getsize(pth))
     label = Path(pth).name if name is None else name
-    pbar = tqdm(ncols=80, total=total_size, bar_format=f'{label} {{l_bar}}{{bar}}| Remaining: {{remaining}}', disable=False)
+    pbar = tqdm(ncols=80, total=total_size, bar_format=f'{label} {{l_bar}}{{bar}}| {{elapsed}}<{{remaining}}')
     handle = open(pth, mode)
 
-    def newread(size, orig=None):
+    def update(size):
         pbar.update(size)
-        return orig(size)
-    handle.read = partial(newread, orig=handle.read)
+        if pbar.n == pbar.total:
+            pbar.refresh()
+            pbar.close()
 
-    def newreadinto(memory, orig=None):
-        pbar.update(memory.nbytes)
+    def read(size, orig=None):
+        update(size)
+        return orig(size)
+    handle.read = partial(read, orig=handle.read)
+
+    def readinto(memory, orig=None):
+        update(memory.nbytes)
         return orig(memory)
-    handle.readinto = partial(newreadinto, orig=handle.readinto)
+    handle.readinto = partial(readinto, orig=handle.readinto)
+
+    def close(orig=None):
+        update(pbar.total - pbar.n) # set to 100%
+        return orig()
+    handle.close = partial(close, orig=handle.close)
     
     return handle
 

@@ -92,7 +92,7 @@ class ToolbarViewer:
 
     @property
     def mouse_pos_content_norm(self):
-        return (self.mouse_pos_abs - self.output_area_tl) / self.content_size
+        return (self.mouse_pos_abs - self.output_pos_tl) / self.content_size
     
     @property
     def mouse_pos_img_norm(self):
