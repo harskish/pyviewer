@@ -14,12 +14,16 @@ if 'develop' in sys.argv:
 # git tag -a "vX.X.X" -m "vX.X.X"  (only annotated tags show up in GitHub)
 # git push --follow-tags
     
+# In case of mistake:
+# git tag --delete tagname
+# git push --delete origin tagname
+
 # Test package_data changes by manually starting
 # the publish workflow and checking the "Print whl contents" step,
 # or with: `rm -r build\ && pip wheel . && unzip -l pyviewer-*.whl`
 # (not same environment, but good first step)
 setup(name='pyviewer',
-    version='1.3.15',
+    version='1.4.0',
     description='Interactyive python viewers',
     author='Erik Härkönen',
     author_email='erik.harkonen@hotmail.com',

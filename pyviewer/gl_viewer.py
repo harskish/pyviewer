@@ -28,9 +28,11 @@ try:
 except:
     pass
 
-cuda_synchronize = lambda : None
+torch_has_cuda = False
 if has_torch and torch.cuda.is_available():
-    cuda_synchronize = torch.cuda.synchronize
+    torch_has_cuda = True
+
+cuda_synchronize = torch.cuda.synchronize if torch_has_cuda else lambda : None
 
 has_pycuda = False
 try:
@@ -45,7 +47,8 @@ except Exception:
 pt_plugin = None
 try:
     from . import custom_ops
-    pt_plugin = custom_ops.get_plugin('cuda_gl_interop', 'cuda_gl_interop.cpp', Path(__file__).parent / './custom_ops')
+    if torch_has_cuda:
+        pt_plugin = custom_ops.get_plugin('cuda_gl_interop', 'cuda_gl_interop.cpp', Path(__file__).parent / './custom_ops')
 except Exception:
     pass
 

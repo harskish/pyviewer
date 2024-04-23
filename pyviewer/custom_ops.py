@@ -6,10 +6,17 @@ import torch.utils.cpp_extension as cpp
 
 import importlib
 from functools import cache
+from typing import Union
 
 @cache
-def get_plugin(plugin_name: str, source_files: tuple or str, source_folder: str = '.', verbose=True):
-
+def get_plugin(
+    plugin_name: str,
+    source_files: Union[tuple, str],
+    source_folder: str = '.',
+    ldflags: tuple = None,
+    cuda: bool = True, # can turn off if not needed
+    verbose=True
+):
     # Make sure we can find the necessary compiler and libary binaries.
     if os.name == 'nt':
         lib_dir = os.path.dirname(__file__) + r"."
@@ -32,10 +39,10 @@ def get_plugin(plugin_name: str, source_files: tuple or str, source_folder: str 
     # Linker options.
     if os.name == 'posix':
         cflags = ['-O3', '-std=c++17']
-        ldflags = ['-lGL', '-lGLEW', '-lEGL']
+        ldflags = ['-lGL', '-lGLEW', '-lEGL'] if ldflags is None else ldflags
     elif os.name == 'nt':
         libs = ['user32', 'opengl32']
-        ldflags = ['/LIBPATH:' + lib_dir] + ['/DEFAULTLIB:' + x for x in libs]
+        ldflags = (['/LIBPATH:' + lib_dir] + ['/DEFAULTLIB:' + x for x in libs]) if ldflags is None else ldflags
         cflags = ['/O2', '/DWIN32', '/std:c++17','/permissive-', '/w']
 
 
@@ -55,9 +62,9 @@ def get_plugin(plugin_name: str, source_files: tuple or str, source_folder: str 
     # Compile and load.
     original = os.getcwd()
     os.chdir(source_folder)
-
+    
     try:
-        cpp.load(verbose=verbose, name=plugin_name, extra_cflags=cflags, extra_cuda_cflags=['-O2'], sources=source_files, extra_ldflags=ldflags, with_cuda=True)
+        cpp.load(verbose=verbose, name=plugin_name, extra_cflags=cflags, extra_cuda_cflags=['-O2'], sources=source_files, extra_ldflags=ldflags, with_cuda=cuda)
     finally:
         os.chdir(original)
     return importlib.import_module(plugin_name)
