@@ -4,6 +4,7 @@ from . import gl_viewer
 
 # Check imgui version
 import imgui
-assert hasattr(imgui, 'plot'), \
+plot = getattr(imgui, 'plot')
+assert plot, \
     'Pyviewer requires a custom version of imgui that comes bundled with implot (github.com/harskish/pyimgui).\n' + \
     'Please reinstall pyviewer to get the correct version.'
