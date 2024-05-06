@@ -46,11 +46,11 @@ class ToolbarViewer:
         self.pan_handler.clear_color = (0.101, 0.101, 0.101, 1.00) # match theme_deep_dark
         self.pan_enabled = True
         
-        # User-provided
-        self.setup_state()
-
         # User nearest interpolation for sharpness by default
         self.v.set_interp_nearest()
+
+        # User-provided
+        self.setup_state()
         
         # Batch mode: handle compute loop manually, don't start UI
         if not batch_mode:
