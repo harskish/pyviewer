@@ -7,8 +7,8 @@ import numpy as np
 @strict_dataclass
 class State(ParamContainer):
     seed: Param = IntParam('Seed', 0, 0, 10)
-    xform: Param = EnumSliderParam('Xform', np.sin,
-        [np.sin, np.square, np.log], lambda f: f.__name__)
+    xform: Param = EnumSliderParam('Xform', np.log,
+        [np.log, np.sin, np.square], lambda f: f.__name__)
     
 class Viewer(AutoUIViewer):
     def setup_state(self):
@@ -44,7 +44,7 @@ class Viewer(AutoUIViewer):
     def process(self, state: State, res=96):
         noise = np.random.RandomState(state.seed).randn(res, res, 1)
         grad = np.linspace([0], [1], res) * np.linspace(0, 1, res)
-        return state.xform(0.05 * noise + np.stack((grad, grad[::-1, :], grad[:, ::-1]), axis=-1))
+        return state.xform(0.005 * noise + np.stack((grad, grad[::-1, :], grad[:, ::-1]), axis=-1))
 
 if __name__ == '__main__':
     viewer = Viewer('AutoUI example')

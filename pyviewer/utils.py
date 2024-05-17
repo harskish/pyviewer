@@ -22,6 +22,7 @@ class PannableArea():
         self.output_pos_tl = np.zeros(2, dtype=np.float32)
         self.id = ''.join(random.choices(string.ascii_letters, k=20))
         self.is_panning = False
+        self.zoom_enabled = True
         self.pan = (0, 0)
         self.pan_start = (0, 0)
         self.pan_delta = (0, 0)
@@ -315,7 +316,7 @@ class PannableArea():
         return (0 <= x <= 1) and (0 <= y <= 1)
     
     def mouse_wheel_callback(self, window, x, y) -> None:
-        if self.mouse_hovers_content():
+        if self.mouse_hovers_content() and self.zoom_enabled:
             self.zoom = max(1e-2, (0.85**np.sign(-y)) * self.zoom)
         else:
             self.prev_cbk(window, x, y) # scroll imgui lists etc.

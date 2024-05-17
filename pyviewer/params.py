@@ -39,13 +39,20 @@ class _Range2Param(Param):
         self.max = maxval
         self.overlap = overlap  # allow v2 to go below v1?
 
+class _Range3Param(Param):
+    def __init__(self, type, label, default_val, minval, maxval, tooltip: str = None) -> None:
+        super().__init__(type, label, default_val, tooltip)
+        self.min = minval
+        self.max = maxval
+
 class EnumParam(Param):
-    def __init__(self, label, default_val, valid_vals=(), tooltip: str = None) -> None:
+    def __init__(self, label, default_val, valid_vals=(), to_str: Callable[..., str] = str, tooltip: str = None) -> None:
         super().__init__(type(default_val), label, default_val, tooltip)
         self.opts = list(valid_vals)
+        self.to_str = to_str
 
     def draw_widget(self):
-        return combo_box_vals(self.label, self.opts, self.value)
+        return combo_box_vals(self.label, self.opts, self.value, to_str=self.to_str)
 
 class EnumSliderParam(Param):
     def __init__(self, label, default_val, valid_vals=(), to_str: Callable[..., str] = str, tooltip: str = None) -> None:
@@ -89,6 +96,13 @@ class Int2Param(_Range2Param):
             return slider_range_int(*self.value, self.min, self.max, title=self.label)
         else:
             return imgui.slider_int2(self.label, *self.value, self.min, self.max)
+        
+class Int3Param(_Range3Param):
+    def __init__(self, label, default_val: Tuple[int], minval, maxval, tooltip: str = None) -> None:
+        super().__init__(Tuple[int], label, default_val, minval, maxval, tooltip)
+    
+    def draw_widget(self):
+        return imgui.slider_int3(self.label, *self.value, self.min, self.max)
 
 class FloatParam(_RangeParam):
     def __init__(self, label, default_val: float, minval, maxval, tooltip: str = None) -> None:
@@ -106,6 +120,13 @@ class Float2Param(_Range2Param):
             return slider_range_float(*self.value, self.min, self.max, title=self.label)
         else:
             return imgui.slider_float2(self.label, *self.value, self.min, self.max)
+        
+class Float3Param(_Range3Param):
+    def __init__(self, label, default_val: Tuple[float], minval, maxval, tooltip: str = None) -> None:
+        super().__init__(Tuple[float], label, default_val, minval, maxval, tooltip)
+    
+    def draw_widget(self):
+        return imgui.slider_float3(self.label, *self.value, self.min, self.max)
     
 ##########################################
 # Container that exposes raw values
@@ -137,3 +158,14 @@ class ParamContainer:
 
     def __str__(self):
         return str(self.__todict__())
+    
+def draw_container(cont: ParamContainer, reset_button=False):
+    for _, p in cont:
+        if isinstance(p, Param):
+            p.draw()
+    
+    # Draw below widgets
+    if reset_button and imgui.button('Reset'):
+        for _, p in cont:
+            if isinstance(p, Param):
+                p.reset()

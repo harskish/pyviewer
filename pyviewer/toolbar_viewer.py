@@ -11,13 +11,16 @@ from functools import partial
 from . import gl_viewer
 from .utils import imgui_item_width, begin_inline, PannableArea
 from .easy_dict import EasyDict
-from .params import ParamContainer, Param
+from .params import ParamContainer, Param, draw_container
 
 #----------------------------------------------------------------------------
 # Helper class for UIs with toolbar on the left and output image on the right
 
 def file_drop_callback_wrapper(window, paths, callback: callable):
     return callback([Path(p) for p in paths])
+
+def scroll_callback_wrapper(window, xoffset, yoffset, callback: callable):
+    return callback(xoffset, yoffset)
 
 class ToolbarViewer:
     def __init__(self, name, pad_bottom=0, hidden=False, batch_mode=False):
@@ -61,6 +64,8 @@ class ToolbarViewer:
         def init_callbacks(window):
             glfw.set_drop_callback(window,
                 partial(file_drop_callback_wrapper, callback=self.drag_and_drop_callback))
+            glfw.set_scroll_callback(window,
+                partial(scroll_callback_wrapper, callback=self.scroll_callback))
             self.setup_callbacks(window)
             self.pan_handler.set_callbacks(window)
         self.v.start(self._ui_main, (compute_thread), init_callbacks)
@@ -222,12 +227,15 @@ class ToolbarViewer:
 
         # User callback
         begin_inline('toolbar')
-        self.draw_toolbar_autoUI()
-        self.draw_toolbar()
+        self._draw_toolbar_impl()
         imgui.end()
 
+    def _draw_toolbar_impl(self):
+        self.draw_toolbar_autoUI()
+        self.draw_toolbar()
+
     # Only used by AutoUIViewer
-    def draw_toolbar_autoUI(self):
+    def draw_toolbar_autoUI(self, containers=None):
         pass
 
     def mouse_over_image(self):
@@ -287,23 +295,21 @@ class ToolbarViewer:
     def drag_and_drop_callback(self, paths: list[Path]):
         pass
 
+    def scroll_callback(self, xoffset: float, yoffset: float):
+        pass
+
 #----------------------------------------------
 # Version that creates UI widgets automatically
 
 class AutoUIViewer(ToolbarViewer):
-    def draw_toolbar_autoUI(self):
-        if not isinstance(self.state, ParamContainer):
-            return
-
-        for _, p in self.state:
-            if isinstance(p, Param):
-                p.draw()
+    def draw_toolbar_autoUI(self, containers=None):
+        if containers is None:
+            containers = [self.state]
         
-        # Draw below widgets
-        if imgui.button('Reset'):
-            for _, p in self.state:
-                if isinstance(p, Param):
-                    p.reset()
+        for cont in containers:
+            if not isinstance(cont, ParamContainer):
+                continue
+            draw_container(cont, reset_button=True)
 
 #--------------
 # Example usage
