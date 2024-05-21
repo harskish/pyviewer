@@ -111,6 +111,7 @@ class ToolbarViewer:
         self._draw_output()
 
     def _compute_loop(self):
+        self.compute_thread_init()
         while not self.v.quit:
             img = self.compute()
             
@@ -279,6 +280,11 @@ class ToolbarViewer:
     def draw_menu(self):
         pass
     
+    # One time compute thread initialization
+    # Usually not needed
+    def compute_thread_init(self):
+        pass
+
     # Perform computation, returning single np/torch image, or None
     def compute(self):
         pass
