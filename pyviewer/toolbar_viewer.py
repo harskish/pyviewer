@@ -16,11 +16,11 @@ from .params import ParamContainer, Param, draw_container
 #----------------------------------------------------------------------------
 # Helper class for UIs with toolbar on the left and output image on the right
 
-def file_drop_callback_wrapper(window, paths, callback: callable):
-    return callback([Path(p) for p in paths])
+def file_drop_callback_wrapper(window, paths, callback: callable, prev: callable):
+    return callback([Path(p) for p in paths]) or prev(window, paths)
 
-def scroll_callback_wrapper(window, xoffset, yoffset, callback: callable):
-    return callback(xoffset, yoffset)
+def scroll_callback_wrapper(window, xoffset, yoffset, callback: callable, prev: callable):
+    return callback(xoffset, yoffset) or prev(window, xoffset, yoffset)
 
 class ToolbarViewer:
     def __init__(self, name, pad_bottom=0, hidden=False, batch_mode=False):
@@ -62,10 +62,14 @@ class ToolbarViewer:
     def start_UI(self):
         compute_thread = threading.Thread(target=self._compute_loop, args=[])
         def init_callbacks(window):
+            def noop(*args, **kwargs):
+                return False
+            prev = glfw.set_drop_callback(window, None)
             glfw.set_drop_callback(window,
-                partial(file_drop_callback_wrapper, callback=self.drag_and_drop_callback))
+                partial(file_drop_callback_wrapper, callback=self.drag_and_drop_callback, prev=(prev or noop)))
+            prev = glfw.set_scroll_callback(window, None)
             glfw.set_scroll_callback(window,
-                partial(scroll_callback_wrapper, callback=self.scroll_callback))
+                partial(scroll_callback_wrapper, callback=self.scroll_callback, prev=(prev or noop)))
             self.setup_callbacks(window)
             self.pan_handler.set_callbacks(window)
         self.v.start(self._ui_main, (compute_thread), init_callbacks)
@@ -298,10 +302,10 @@ class ToolbarViewer:
     def setup_callbacks(self, window):
         pass
 
-    def drag_and_drop_callback(self, paths: list[Path]):
+    def drag_and_drop_callback(self, paths: list[Path]) -> bool:
         pass
 
-    def scroll_callback(self, xoffset: float, yoffset: float):
+    def scroll_callback(self, xoffset: float, yoffset: float) -> bool:
         pass
 
 #----------------------------------------------
