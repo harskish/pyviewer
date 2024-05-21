@@ -259,6 +259,10 @@ class ToolbarViewer:
         self.img_shape = [C, H, W]
         self.v.upload_image(self.output_key, img_hwc)
     
+    # Includes keyboard (glfw.KEY_A) and mouse (glfw.MOUSE_BUTTON_LEFT)
+    def keydown(self, key):
+        return self.v.keydown(key)
+
     #------------------------
     # User-provided functions
 

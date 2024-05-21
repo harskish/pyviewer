@@ -273,7 +273,8 @@ class viewer:
         self._editables = {}
         self.tex_interp_mode = gl.GL_LINEAR
         self.default_font_size = 15
-        
+        self.renderer = None
+
         fname = inifile or "".join(c for c in title.lower() if c.isalnum())
         self._inifile = Path(fname).with_suffix('.ini')
 
@@ -425,6 +426,7 @@ class viewer:
             self._editables[name] = _editable(name)
         self._editables[name].run(**kwargs)
 
+    # Includes keyboard (glfw.KEY_A) and mouse (glfw.MOUSE_BUTTON_LEFT)
     def keydown(self, key):
         return key in self._pressed_keys
 
@@ -504,18 +506,11 @@ class viewer:
         s.colors[imgui.COLOR_POPUP_BACKGROUND] = [x * 0.7 + y * 0.3 for x, y in zip(c0, c1)][:3] + [1]
 
     def start(self, loopfunc, workers = (), glfw_init_callback = None):
-        # allow single thread object
-        if not hasattr(workers, '__len__'):
-            workers = (workers,)
-
-        for i in range(len(workers)):
-            workers[i].start()
-        
-        with self.lock():
-            impl = GlfwRenderer(self._window)
-        
         self._pressed_keys = set()
         self._hit_keys = set()
+        
+        with self.lock():
+            self.renderer = GlfwRenderer(self._window)
 
         def on_key(window, key, scan, pressed, mods):
             if pressed:
@@ -526,17 +521,35 @@ class viewer:
                 if key in self._pressed_keys:
                     self._pressed_keys.remove(key) # check seems to be needed over RDP sometimes
             if key != glfw.KEY_ESCAPE: # imgui erases text with escape (??)
-                impl.keyboard_callback(window, key, scan, pressed, mods)
+                self.renderer.keyboard_callback(window, key, scan, pressed, mods)
+
+        def on_mouse_button(window, key, action, mods):
+            if action == glfw.PRESS:
+                if key not in self._pressed_keys:
+                    self._hit_keys.add(key)
+                self._pressed_keys.add(key)
+            else:
+                if key in self._pressed_keys:
+                    self._pressed_keys.remove(key)
+            self.renderer.keyboard_callback(window, key, None, action, mods)
 
         glfw.set_key_callback(self._window, on_key)
+        glfw.set_mouse_button_callback(self._window, on_mouse_button)
 
         # For settings custom callbacks etc.
         if glfw_init_callback is not None:
             glfw_init_callback(self._window)
 
+        # allow single thread object
+        if not hasattr(workers, '__len__'):
+            workers = (workers,)
+
+        for i in range(len(workers)):
+            workers[i].start()
+
         while not glfw.window_should_close(self._window):
             glfw.poll_events()
-            impl.process_inputs()
+            self.renderer.process_inputs()
 
             if self.keyhit(glfw.KEY_ESCAPE):
                 glfw.set_window_should_close(self._window, 1)
@@ -566,7 +579,7 @@ class viewer:
                 gl.glClearColor(0, 0, 0, 1)
                 gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
-                impl.render(imgui.get_draw_data())
+                self.renderer.render(imgui.get_draw_data())
                 
                 # TODO: compute thread has to wait until sync is done
                 # and lock is released if calling upload_image()?
