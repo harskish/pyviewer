@@ -1,6 +1,7 @@
 # Code graciously provided by Pauli Kemppinen (github.com/msqrt)
 
 import os
+import sys
 import torch
 import torch.utils.cpp_extension as cpp
 
@@ -15,6 +16,7 @@ def get_plugin(
     source_folder: str = '.',
     ldflags: tuple = None,
     cuda: bool = True, # can turn off if not needed
+    unsafe_load_prebuilt: bool = False,
     verbose=True
 ):
     # Make sure we can find the necessary compiler and libary binaries.
@@ -49,10 +51,25 @@ def get_plugin(
     # Some containers set this to contain old architectures that won't compile. We only need the one installed in the machine.
     os.environ['TORCH_CUDA_ARCH_LIST'] = ''
 
-    # Try to detect if a stray lock file is left in cache directory and show a warning. This sometimes happens on Windows if the build is interrupted at just the right moment.
+    build_dir = cpp._get_build_directory(plugin_name, False)
+
+    # Try to load prebuilt, continue to build on failure
+    # Might load an old version if the sources have changed
+    if unsafe_load_prebuilt:
+        prev_path = [*sys.path]
+        try:
+            sys.path.append(build_dir)
+            return importlib.import_module(plugin_name) # .pyd on Windows
+        except:
+            pass
+        finally:
+            sys.path = prev_path
+
     if os.name == "nt":
         try:
-            lock_fn = os.path.join(cpp._get_build_directory(plugin_name, False), 'lock')
+            # Try to detect if a stray lock file is left in cache directory and show a warning.
+            # This sometimes happens on Windows if the build is interrupted at just the right moment.
+            lock_fn = os.path.join(build_dir, 'lock')
             if os.path.exists(lock_fn):
                 print("warning: Lock file exists in build directory: '%s', removing" % lock_fn)
                 os.remove(lock_fn)

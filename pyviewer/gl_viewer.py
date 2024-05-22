@@ -48,7 +48,7 @@ pt_plugin = None
 try:
     from . import custom_ops
     if torch_has_cuda:
-        pt_plugin = custom_ops.get_plugin('cuda_gl_interop', 'cuda_gl_interop.cpp', Path(__file__).parent / './custom_ops')
+        pt_plugin = custom_ops.get_plugin('cuda_gl_interop', 'cuda_gl_interop.cpp', Path(__file__).parent / './custom_ops', unsafe_load_prebuilt=True)
 except Exception:
     pass
 
@@ -328,7 +328,7 @@ class viewer:
 
         glfw.set_window_pos(self._window, *self.window_pos)
         glfw.make_context_current(self._window)
-        print('GL context:', gl.glGetString(gl.GL_VERSION).decode('utf8'))
+        # print('GL context:', gl.glGetString(gl.GL_VERSION).decode('utf8'))
 
         self._cuda_context = None
         if has_pycuda:
