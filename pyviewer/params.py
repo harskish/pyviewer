@@ -159,13 +159,17 @@ class ParamContainer:
     def __str__(self):
         return str(self.__todict__())
     
+def reset_container(cont: ParamContainer):
+    for _, p in cont:
+        if isinstance(p, Param):
+            p.reset()
+
 def draw_container(cont: ParamContainer, reset_button=False):
     for _, p in cont:
         if isinstance(p, Param):
             p.draw()
     
     # Draw below widgets
-    if reset_button and imgui.button('Reset'):
-        for _, p in cont:
-            if isinstance(p, Param):
-                p.reset()
+    id = hash(frozenset(cont.__dict__.keys())) # not portable or consistent across runs, but that's fine
+    if reset_button and imgui.button(f'Reset##{id}'):
+        reset_container(cont)
