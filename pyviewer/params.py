@@ -136,6 +136,11 @@ class ParamContainer:
         for attr, _ in self.__dataclass_fields__.items():
             yield attr, super().__getattribute__(attr)
     
+    # state['key'] => return param object
+    def __getitem__(self, key):
+        return super().__getattribute__(key)
+
+    # state.key => return raw value
     def __getattribute__(self, __name: str):
         obj = super().__getattribute__(__name)
         if isinstance(obj, Param):
