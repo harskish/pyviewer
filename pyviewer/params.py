@@ -51,8 +51,12 @@ class EnumParam(Param):
         self.opts = list(valid_vals)
         self.to_str = to_str
 
+    def draw(self):
+        self.value = self.draw_widget()[1][0]
+        self.draw_tooltip()
+
     def draw_widget(self):
-        return combo_box_vals(self.label, self.opts, self.value, to_str=self.to_str)
+        return combo_box_vals(self.label, self.opts, self.value, None, to_str=self.to_str)
 
 class EnumSliderParam(Param):
     def __init__(self, label, default_val, valid_vals=(), to_str: Callable[..., str] = str, tooltip: str = None) -> None:
@@ -130,7 +134,7 @@ class Float3Param(_Range3Param):
     
 ##########################################
 # Container that exposes raw values
-@strict_dataclass
+@strict_dataclass(ignore_attr=('as_dict', 'unstable_hash'))
 class ParamContainer:
     def __iter__(self):
         for attr, _ in self.__dataclass_fields__.items():
@@ -155,14 +159,18 @@ class ParamContainer:
         else:
             super().__setattr__(__name, __value)
             
-    def __todict__(self):
+    def as_dict(self):
         ret = {}
         for attr, _ in self.__dataclass_fields__.items():
             ret[attr] = self.__getattribute__(attr)
         return ret
+    
+    # Not consistent across interpreter instances
+    def unstable_hash(self):
+        return hash(frozenset(self.as_dict().items()))
 
     def __str__(self):
-        return str(self.__todict__())
+        return str(self.as_dict())
     
 def reset_container(cont: ParamContainer):
     for _, p in cont:

@@ -323,19 +323,35 @@ class PannableArea():
 
 # Dataclass that enforces type annotation
 # Enables compare-by-value
-def strict_dataclass(cls, *args, **kwargs):
-    annotations = cls.__dict__.get('__annotations__', {})
-    for name in dir(cls):
-        if name.startswith('__'):
-            continue
-        if name not in annotations:
-            raise RuntimeError(f'Unannotated field: {name}')
-    
-    # Write updated
-    setattr(cls, '__annotations__', annotations)
+def strict_dataclass(cls=None, *args, ignore_attr=(), **kwargs):
+    def wrap(cls):
+        # Needed if subclassing a strict_dataclass
+        new = [ignore_attr] if isinstance(ignore_attr, str) else list(ignore_attr)
+        ignore = getattr(cls, '__ignore_attr__', set()).union(new)
+        setattr(cls, '__ignore_attr__', ignore)
         
-    from dataclasses import dataclass
-    return dataclass(cls, *args, **kwargs)
+        annotations = cls.__dict__.get('__annotations__', {})
+        for name in dir(cls):
+            if name.startswith('__'):
+                continue
+            if name in ignore:
+                continue # for functions etc.
+            if name not in annotations:
+                raise RuntimeError(f'Unannotated field: {name}')
+    
+        # Write updated
+        setattr(cls, '__annotations__', annotations)
+            
+        from dataclasses import dataclass
+        return dataclass(cls, *args, **kwargs)
+
+    # See if we're being called as @strict_dataclass or @strict_dataclass().
+    if cls is None:
+        # We're called with parens.
+        return wrap
+
+    # We're called as @strict_dataclass without parens.
+    return wrap(cls)
 
 # with-block for item id
 @contextlib.contextmanager
@@ -373,11 +389,12 @@ def rgetattr(obj, key, default=None):
     return getattr(head, key, default)
 
 # Combo box that returns value, not index
-def combo_box_vals(title, values, current, height_in_items=-1, to_str: callable = str):
+# Idx needed if there are duplicates in the allowed values
+def combo_box_vals(title, values, current=None, idx=None, height_in_items=-1, to_str: callable = str):
     values = list(values)
-    curr_idx = 0 if current not in values else values.index(current)
-    changed, ind = imgui.combo(title, curr_idx, [to_str(v) for v in values], height_in_items)
-    return changed, values[ind]
+    idx = values.index(current) if idx is None else idx
+    changed, new_idx = imgui.combo(title, idx, [to_str(v) for v in values], height_in_items)
+    return changed, (values[new_idx], new_idx)
 
 # Slider that cycles through predefined values
 # Abusing format to draw current enum value onto slider

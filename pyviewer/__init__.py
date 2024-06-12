@@ -1,7 +1,3 @@
-from . import single_image_viewer
-from . import toolbar_viewer
-from . import gl_viewer
-
 # Check imgui version
 import imgui
 plot = getattr(imgui, 'plot', None)
