@@ -43,6 +43,9 @@ class PannableArea():
         if self.canvas_w == W and self.canvas_h == H:
             return
         
+        if H <= 0 or W <= 0:
+            return # minimized
+        
         #print(f'PannableArea: resizing to {W}x{H}')
         self.canvas_w = W
         self.canvas_h = H
