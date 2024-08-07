@@ -21,6 +21,8 @@ def radical_inverse(b: int, i: int):
 def halton(i: int, dim: int):
     return radical_inverse(PRIMES[dim], i)
 
+# For lists: fast
+# For np.array: pass bytearray(a) instead
 def toarr(a: list):
     return array.array('f', a)
 

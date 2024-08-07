@@ -241,6 +241,8 @@ class SingleImageViewer:
 
         if v.keyhit(glfw.KEY_PAUSE):
             self.paused.value = not self.paused.value
+        if v.keyhit(glfw.KEY_M):
+            self.plot_mode.value = not self.plot_mode.value # switch between plot and img mode
 
         imgui.set_next_window_size(*glfw.get_window_size(v._window))
         imgui.set_next_window_position(0, 0)
@@ -279,7 +281,7 @@ class SingleImageViewer:
             avail_w = W - 2*style.window_padding.x
             implot.set_next_marker_style(size=7)
             implot.begin_plot('', size=(avail_w, avail_h))
-            implot.plot_line2('', array.array('f', x), array.array('f', y), len(x))
+            implot.plot_line2('', array.array('f', bytearray(x)), array.array('f', bytearray(y)), len(x))
             implot.end_plot()
 
         if self.paused.value:
