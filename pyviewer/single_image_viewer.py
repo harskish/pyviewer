@@ -11,6 +11,14 @@ import imgui
 import ctypes
 import sys
 import warnings
+import array
+
+# Check imgui version
+import imgui
+implot = getattr(imgui, 'plot', None)
+assert implot, \
+    'Pyviewer requires a custom version of imgui that comes bundled with implot (github.com/harskish/pyimgui).\n' + \
+    'Please reinstall pyviewer to get the correct version.'
 
 has_torch = False
 try:
@@ -38,17 +46,22 @@ class SingleImageViewer:
         # With uint8 (~4x faster copies than float32), this is
         # faster than waiting for OpenGL upload (for some reason...)
         self.dtype = dtype
-
+        
         # Shared resources for inter-process communication
         # One shared 8k rgb buffer allocated (max size), subset written to
         # Size does not affect performance, only memory usage
-        self.max_size = (2*3840, 2*2160, 3)
+        self.max_size_img = (2*3840, 2*2160, 3)
         ctype = ctypes.c_uint8 if self.dtype == 'uint8' else ctypes.c_float
-        self.shared_buffer = mp.Array(ctype, np.prod(self.max_size).item())
+        self.shared_buffer_img = mp.Array(ctype, np.prod(self.max_size_img).item())
+
+        # Plotting mode: max size 1M floats per axis
+        self.max_size_plot = 1_000_000
+        self.shared_buffer_plot = mp.Array(ctypes.c_float, 2*self.max_size_plot)
         
         # Non-scalar type: not updated in single transaction
         # Protected by shared_buffer's lock
         self.latest_shape = mp.Value(ImgShape, *(0,0,0), lock=False)
+        self.latest_plot_len = mp.Value(ctypes.c_uint, 0, lock=False) # single axis
         
         # Current window size, protected by lock
         self.curr_window_size = mp.Value(WindowSize, *(0,0))
@@ -56,6 +69,7 @@ class SingleImageViewer:
         # Scalar values updated atomically
         self.should_quit = mp.Value('i', 0)
         self.has_new_img = mp.Value('i', 0)
+        self.plot_mode = mp.Value('i', 0) # 0 = image, 1 = plot
         
         # For hiding/showing window
         self.hidden = mp.Value(ctypes.c_bool, hidden, lock=False)
@@ -81,11 +95,6 @@ class SingleImageViewer:
     def wait_for_close(self):
         while self.ui_process.is_alive():
             time.sleep(0.2)
-    
-    @property
-    def curr_shape(self):
-        with self.shared_buffer.get_lock(): # shared lock
-            return (self.latest_shape.h, self.latest_shape.w, self.latest_shape.c)
 
     @property
     def window_size(self):
@@ -147,6 +156,9 @@ class SingleImageViewer:
         if (self.paused.value and not ignore_pause) or not self.ui_process.is_alive():
             return
 
+        # Activate image mode
+        self.plot_mode.value = 0
+        
         if not has_torch:
             assert isinstance(img_hwc, (type(None), np.ndarray)), 'PyTorch not available, only numpy arrays supported'
             assert isinstance(img_chw, (type(None), np.ndarray)), 'PyTorch not available, only numpy arrays supported'
@@ -170,16 +182,48 @@ class SingleImageViewer:
         img_hwc = normalize_image_data(img_hwc)
 
         sz = np.prod(img_hwc.shape)
-        assert sz <= np.prod(self.max_size), f'Image too large, max size {self.max_size}'
+        assert sz <= np.prod(self.max_size_img), f'Image too large, max size {self.max_size_img}'
 
         # Synchronize
-        with self.shared_buffer.get_lock():
-            arr_np = np.frombuffer(self.shared_buffer.get_obj(), dtype=self.dtype)
+        with self.shared_buffer_img.get_lock():
+            arr_np = np.frombuffer(self.shared_buffer_img.get_obj(), dtype=self.dtype)
             arr_np[:sz] = img_hwc.reshape(-1)
             self.latest_shape.h = img_hwc.shape[0]
             self.latest_shape.w = img_hwc.shape[1]
             self.latest_shape.c = img_hwc.shape[2]
             self.has_new_img.value = 1
+
+    # Called from main thread
+    def plot(self, y, *, x=None, ignore_pause=False):
+        # Paused or closed
+        if (self.paused.value and not ignore_pause) or not self.ui_process.is_alive():
+            return
+
+        # Activate plotting mode
+        self.plot_mode.value = 1
+        
+        assert x is not None or y is not None, 'Must provide data for x or y axis'
+
+        if has_torch and torch.is_tensor(x):
+            x = x.detach().cpu().numpy()
+        
+        if has_torch and torch.is_tensor(y):
+            y = y.detach().cpu().numpy()
+        
+        # Flatten, fill missing data with linspace
+        x = x.reshape(-1) if x is not None else np.linspace(0, 1, len(y.reshape(-1)))
+        y = y.reshape(-1) if y is not None else np.linspace(0, 1, len(x.reshape(-1)))
+        assert len(x) == len(y), 'X and Y length differs'
+
+        sz = np.prod(x.shape)
+        assert sz <= self.max_size_plot, f'Too much data, max size {self.max_size_plot} per axis'
+
+        # Synchronize
+        with self.shared_buffer_plot.get_lock():
+            arr_np = np.frombuffer(self.shared_buffer_plot.get_obj(), dtype='float32')
+            arr_np[0:sz] = x.astype(np.float32)
+            arr_np[sz:2*sz] = y.astype(np.float32)
+            self.latest_plot_len.value = sz
 
     # Called in loop from ui thread
     def ui(self, v):
@@ -202,19 +246,41 @@ class SingleImageViewer:
         imgui.set_next_window_position(0, 0)
         begin_inline('Output')
         
+        plot_mode = bool(self.plot_mode.value)
+        image_mode = not plot_mode
+
         # Draw provided image
-        if self.pan_enabled.value:
-            tex_in = v._images.get(self.key)
-            if tex_in:
-                tex_H, tex_W, _ = tex_in.shape
-                cW, cH = [int(r-l) for l,r in zip(
-                    imgui.get_window_content_region_min(), imgui.get_window_content_region_max())]
-                scale = min(cW / tex_W, cH / tex_H)
-                out_res = (int(tex_W*scale), int(tex_H*scale))
-                tex = v.pan_handler.draw_to_canvas(tex_in.tex, *out_res, cW, cH)
-                imgui.image(tex, cW, cH)
-        else:
-            v.draw_image(self.key, width='fit')
+        if image_mode:
+            v.pan_handler.zoom_enabled = True
+            if self.pan_enabled.value:
+                tex_in = v._images.get(self.key)
+                if tex_in:
+                    tex_H, tex_W, _ = tex_in.shape
+                    cW, cH = [int(r-l) for l,r in zip(
+                        imgui.get_window_content_region_min(), imgui.get_window_content_region_max())]
+                    scale = min(cW / tex_W, cH / tex_H)
+                    out_res = (int(tex_W*scale), int(tex_H*scale))
+                    tex = v.pan_handler.draw_to_canvas(tex_in.tex, *out_res, cW, cH)
+                    imgui.image(tex, cW, cH)
+            else:
+                v.draw_image(self.key, width='fit')
+        
+        if plot_mode:
+            v.pan_handler.zoom_enabled = False
+            x = y = None
+            with self.shared_buffer_plot.get_lock():
+                sz = self.latest_plot_len.value
+                data = np.frombuffer(self.shared_buffer_plot.get_obj(), dtype='float32', count=2*sz).copy()
+                x = data[0:sz]
+                y = data[sz:]
+            W, H = glfw.get_window_size(v._window)
+            style = imgui.get_style()
+            avail_h = H - 2*style.window_padding.y
+            avail_w = W - 2*style.window_padding.x
+            implot.set_next_marker_style(size=7)
+            implot.begin_plot('', size=(avail_w, avail_h))
+            implot.plot_line2('', array.array('f', x), array.array('f', y), len(x))
+            implot.end_plot()
 
         if self.paused.value:
             imgui.push_font(v._imgui_fonts[30])
@@ -227,13 +293,14 @@ class SingleImageViewer:
         imgui.end()
 
     # Called in loop from compute thread
+    # Image upload loop, not needed for plotting
     def compute(self, v):
         self.started.value = True
         while not v.quit:
             if self.has_new_img.value == 1:
-                with self.shared_buffer.get_lock():
-                    shape = self.curr_shape
-                    img = np.frombuffer(self.shared_buffer.get_obj(), dtype=self.dtype, count=np.prod(shape)).copy()
+                with self.shared_buffer_img.get_lock():
+                    shape = (self.latest_shape.h, self.latest_shape.w, self.latest_shape.c)
+                    img = np.frombuffer(self.shared_buffer_img.get_obj(), dtype=self.dtype, count=np.prod(shape)).copy()
                     self.has_new_img.value = 0
 
                 img = img.reshape(shape)
@@ -278,3 +345,7 @@ def show_window():
 def draw(*, img_hwc=None, img_chw=None, ignore_pause=False):
     init('SIV') # no-op if init already performed
     inst.draw(img_hwc, img_chw, ignore_pause)
+
+def plot(y, *, x=None, ignore_pause=False):
+    init('SIV') # no-op if init already performed
+    inst.plot(x=x, y=y, ignore_pause=ignore_pause)
