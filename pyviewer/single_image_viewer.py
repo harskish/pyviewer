@@ -12,6 +12,7 @@ import ctypes
 import sys
 import warnings
 import array
+from enum import Enum
 
 # Check imgui version
 import imgui
@@ -34,6 +35,12 @@ class ImgShape(ctypes.Structure):
     _fields_ = [('h', ctypes.c_uint), ('w', ctypes.c_uint), ('c', ctypes.c_uint)]
 class WindowSize(ctypes.Structure):
     _fields_ = [('w', ctypes.c_uint), ('h', ctypes.c_uint)]
+
+class VizMode(Enum):
+    IMAGE = 0
+    PLOT_LINE = 1
+    PLOT_LINE_DOT = 2
+    PLOT_DOT = 3
 
 class SingleImageViewer:
     def __init__(self, title, key=None, dtype='uint8', vsync=True, hidden=False, pannable=True):
@@ -69,7 +76,9 @@ class SingleImageViewer:
         # Scalar values updated atomically
         self.should_quit = mp.Value('i', 0)
         self.has_new_img = mp.Value('i', 0)
-        self.plot_mode = mp.Value('i', 0) # 0 = image, 1 = plot
+        
+        # Image or plot
+        self.viz_mode = mp.Value('i', VizMode.IMAGE.value)
         
         # For hiding/showing window
         self.hidden = mp.Value(ctypes.c_bool, hidden, lock=False)
@@ -157,7 +166,7 @@ class SingleImageViewer:
             return
 
         # Activate image mode
-        self.plot_mode.value = 0
+        self.viz_mode.value = VizMode.IMAGE
         
         if not has_torch:
             assert isinstance(img_hwc, (type(None), np.ndarray)), 'PyTorch not available, only numpy arrays supported'
@@ -200,7 +209,8 @@ class SingleImageViewer:
             return
 
         # Activate plotting mode
-        self.plot_mode.value = 1
+        if self.viz_mode.value == VizMode.IMAGE.value:
+            self.viz_mode.value = VizMode.PLOT_LINE.value
         
         assert x is not None or y is not None, 'Must provide data for x or y axis'
 
@@ -242,17 +252,16 @@ class SingleImageViewer:
         if v.keyhit(glfw.KEY_PAUSE):
             self.paused.value = not self.paused.value
         if v.keyhit(glfw.KEY_M):
-            self.plot_mode.value = not self.plot_mode.value # switch between plot and img mode
+            self.viz_mode.value = (self.viz_mode.value + 1) % len(VizMode) # loop through modes
 
         imgui.set_next_window_size(*glfw.get_window_size(v._window))
         imgui.set_next_window_position(0, 0)
         begin_inline('Output')
         
-        plot_mode = bool(self.plot_mode.value)
-        image_mode = not plot_mode
+        viz_mode = VizMode(self.viz_mode.value)
 
         # Draw provided image
-        if image_mode:
+        if viz_mode == VizMode.IMAGE:
             v.pan_handler.zoom_enabled = True
             if self.pan_enabled.value:
                 tex_in = v._images.get(self.key)
@@ -267,7 +276,8 @@ class SingleImageViewer:
             else:
                 v.draw_image(self.key, width='fit')
         
-        if plot_mode:
+        # Draw plot
+        else:
             v.pan_handler.zoom_enabled = False
             x = y = None
             with self.shared_buffer_plot.get_lock():
@@ -279,9 +289,14 @@ class SingleImageViewer:
             style = imgui.get_style()
             avail_h = H - 2*style.window_padding.y
             avail_w = W - 2*style.window_padding.x
-            implot.set_next_marker_style(size=7)
             implot.begin_plot('', size=(avail_w, avail_h))
-            implot.plot_line2('', array.array('f', bytearray(x)), array.array('f', bytearray(y)), len(x))
+            arr_x = array.array('f', bytearray(x))
+            arr_y = array.array('f', bytearray(y))
+            if viz_mode in [VizMode.PLOT_LINE, VizMode.PLOT_LINE_DOT]:
+                implot.plot_line2('', arr_x, arr_y, len(x))
+            if viz_mode in [VizMode.PLOT_DOT, VizMode.PLOT_LINE_DOT]:
+                implot.set_next_marker_style(size=2)
+                implot.plot_scatter2('', arr_x, arr_y, len(x))
             implot.end_plot()
 
         if self.paused.value:
