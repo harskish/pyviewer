@@ -21,7 +21,7 @@ def get_plugin(
 ):
     # Make sure we can find the necessary compiler and libary binaries.
     if os.name == 'nt':
-        lib_dir = os.path.dirname(__file__) + r"."
+        lib_dir = os.path.dirname(__file__) + r"."  # TODO: this seems incorrect
         def find_cl_path():
             import glob
             for maybe_x86 in ["", " (x86)"]:
@@ -37,6 +37,13 @@ def get_plugin(
                 raise RuntimeError("Could not locate a supported Microsoft Visual C++ installation")
             os.environ['PATH'] += ';' + cl_path
 
+        cuda_path = os.getenv('CUDA_PATH')
+        if cuda:
+            if cuda_path is None:
+                print('Please set environment variable CUDA_PATH')
+            else:
+                # As of Python 3.8, cwd and $PATH are no longer searched for DLLs
+                os.add_dll_directory(os.path.join(cuda_path, 'bin'))
 
     # Linker options.
     if os.name == 'posix':
@@ -60,8 +67,11 @@ def get_plugin(
         try:
             sys.path.append(build_dir)
             return importlib.import_module(plugin_name) # .pyd on Windows
-        except:
-            pass
+        except ImportError as e:
+            if e.msg.startswith('DLL load failed') and cuda:
+                print('DLL load failed, make sure all DLLs required by module are available (NB: $PATH and cwd are not searched)')
+        except Exception as e:
+            pass # could not load cached, proceed to compilation step
         finally:
             sys.path = prev_path
 
@@ -82,6 +92,15 @@ def get_plugin(
     
     try:
         cpp.load(verbose=verbose, name=plugin_name, extra_cflags=cflags, extra_cuda_cflags=['-O2'], sources=source_files, extra_ldflags=ldflags, with_cuda=cuda)
+    except ImportError as e:
+        if e.msg.startswith('DLL load failed') and cuda:
+            # Debug with:
+            # dumpbin.exe /dependents cuda_gl_interop.pyd
+            # python -m dlldiag deps cuda_gl_interop.pyd
+            # Dependencies.exe -chain cuda_gl_interop.pyd -depth 1
+            print('DLL load failed, make sure all DLLs required by module are available (NB: $PATH and cwd are not searched)')
+    except Exception as e:
+        pass
     finally:
         os.chdir(original)
     return importlib.import_module(plugin_name)
