@@ -9,19 +9,48 @@ import os
 import glfw
 import random
 import string
+import time
 from textwrap import dedent
+from functools import wraps
 
 import OpenGL.GL as gl
 import ctypes
 
-# ImGui widget that wraps arbitrary object
-# and allows mouse pand & zoom controls
+def rate_limit(T, default=None, delay=0):
+    """
+    Do something (expensive) at most every T seconds.
+    Args:
+      T: minimum interval between evaluations, in seconds.
+      default: default return value in case function wasn't called.
+      delay: initial delay, in seconds.
+    """
+    def wrapper(f):
+        @wraps(f)
+        def aux(*args, **kwargs):
+            if time.monotonic() - aux.latest >= T:
+                retval = f(*args, **kwargs)
+                aux.latest = time.monotonic()
+                return retval
+            else:
+                return default
+        aux.latest = time.monotonic() - T + delay
+        return aux
+    return wrapper
+
+@rate_limit(T=0.5)
+def print_slow(*args, **kwargs):
+    print(*args, **kwargs)
+
+# ImGui widget that wraps arbitrary object and allows mouse pand & zoom controls.
+# Does not transform texture coordinates; instead transforms a single textured quad.
+# Panning produces no temporal aliasing: the pan follows the mouse, which moves in one pixel increments.
 class PannableArea():
     def __init__(self, set_callbacks=False, glfw_window=False) -> None:  # draw_content: callable, 
         self.prev_cbk: callable = lambda : None  # for chaining
         self.output_pos_tl = np.zeros(2, dtype=np.float32)
         self.id = ''.join(random.choices(string.ascii_letters, k=20))
-        self.is_panning = False
+        self.is_panning = False # currently panning?
+        self.pan_enabled = True
         self.zoom_enabled = True
         self.pan = (0, 0)
         self.pan_start = (0, 0)
@@ -34,6 +63,10 @@ class PannableArea():
         self.canvas_fb = None
         self.canvas_w = 0
         self.canvas_h = 0
+        
+        # Size of image on screen (not texture dims)
+        self.img_h = 0
+        self.img_w = 0
 
         if set_callbacks:
             assert glfw_window, 'Must provide glfw window for callback setting'
@@ -98,10 +131,11 @@ class PannableArea():
 
             void main()
             {
-                v_texcoord = texcoord;
-                vec3 posxy = xform * vec3(position, 1.0);
-                gl_Position = vec4(posxy.xy, 0.0, 1.0);
-            }"""
+                v_texcoord = texcoord; // texel coords untouched
+                vec3 pos = xform * vec3(position, 1.0);
+                gl_Position = vec4(pos.xy, 0.0, 1.0); // quad itself transformed
+            }
+            """
         ))
 
         gl.glShaderSource(fragment_shader, dedent(
@@ -114,7 +148,8 @@ class PannableArea():
             void main()
             {
                 color = texture(tex, v_texcoord);
-            }"""
+            }
+            """
         ))
 
         for prog in [vertex_shader, fragment_shader]:
@@ -182,6 +217,9 @@ class PannableArea():
 
         # Keep track of content position
         self.output_pos_tl[:] = imgui.get_item_rect_min()
+        self.img_w = iW
+        self.img_h = iH
+        self.pan_enabled = pan_enabled
 
         # Update pan & zoom state
         self.handle_pan()
@@ -192,17 +230,10 @@ class PannableArea():
         gl.glDisable(gl.GL_SCISSOR_TEST)
         gl.glActiveTexture(gl.GL_TEXTURE0)
         gl.glClearColor(*self.clear_color)
-
-        # Get current pan/zoom xform
-        xform = self.get_transform_ndc() if pan_enabled else np.eye(3)
-        xform[1, 1] *= -1  # flip y
-
-        # Image size is computed to fill smaller canvas dimension
-        # Account for this scaling to prevent image stretching
-        scale = np.diag([iW/cW, iH/cH, 1])
-        xform = xform @ scale
         
+        # Transform textured quad based on pan and zoom
         # GL expects [..., tX, tY, 1]
+        xform = self.get_quad_transform()
         xform = np.transpose(xform)
 
         gl.glUseProgram(self._shader_handle)
@@ -233,18 +264,20 @@ class PannableArea():
     def get_transform_ndc(self):
         """
         Get current image transform.
-        Should be applied to coordinates in [-1, 1] (NDC space)
+        Standard mathematical conventions: x-axis right, y-axis up.
+        Origin at (0, 0), can be applied to coordinates in NDC space ([-1, 1]).
+        Screen-width translation from origin to edge is of scale 1.0f
         """
         M = np.eye(3, dtype=np.float32)
         M[0, 2] += (self.pan[0]+self.pan_delta[0])*2
         M[1, 2] += (self.pan[1]+self.pan_delta[1])*2
-        M = np.diag((self.zoom, self.zoom, 1)) @ M
+        M = np.diag((self.zoom, self.zoom, 1)) @ M # zoom relative to viewport center (post-translation)
         return M
     
     def get_transform_scaled(self, W, H):
         """
         Get current image transform.
-        Should be applied to coordinates in [0, W]x[0, H]
+        Origin at (W/2, H/2), should be applied to coordinates in [0, W]x[0, H]
         """
         M = self.get_transform_ndc()
 
@@ -258,12 +291,32 @@ class PannableArea():
 
         return M
     
-    def get_transform(self):
+    def get_transform_01(self):
         """
         Get current image transform.
-        Should be applied to coordinates in [0, 1]
+        Origin at (0.5, 0.5), should be applied to coordinates in [0, 1]
         """
         return self.get_transform_scaled(1, 1)
+    
+    def get_quad_transform(self, flip_y=True):
+        """
+        Get the matrix that transforms the textured quad before rendering.
+        Takes content and window aspect ratios into account.
+        """
+        # Get current pan/zoom xform
+        # Normal mathematical conventions (y-up)
+        xform = self.get_transform_ndc() if self.pan_enabled else np.eye(3)
+        
+        # Flipping: not for fixing texture access; want to flip whole y axis (quad position included)
+        flip = np.diag([1, -1, 1]) if flip_y else np.eye(3)
+
+        # Image size is computed to fill smaller canvas dimension
+        # Account for this scaling to prevent image stretching
+        # => squish quad to same aspect ratio as image
+        aspect = np.diag([self.img_w/self.canvas_w, self.img_h/self.canvas_h, 1])
+        xform = flip @ xform @ aspect
+        
+        return xform
     
     # Set transform state from np matrix
     # Assuming M contains only zoom & translation
@@ -276,24 +329,84 @@ class PannableArea():
             M[1, 2] / H / self.zoom,
         )
 
-    # Handle pan action
-    def handle_pan(self):
-        xy = np.array(self.mouse_pos_img_norm)
-        
-        # Figure out what part of image is currently visible
+    def get_visible_box_canvas(self):
+        """
+        Returns top-left and bottom-right coords of currently visible canvas (!= image) region, in [0, 1].
+        """
         box = np.array([
             0.0, 0.0, 1.0,
             1.0, 1.0, 1.0,
         ]).reshape(1, 2, 3)
-        M = np.linalg.inv(self.get_transform())
-        box = (box @ M)[0, 0:2, 0:2]
-        a, b = (box[0] * (1 - xy) + box[1] * xy).tolist()
+        M = np.linalg.inv(self.get_transform_01()) # scaled for inputs in [0, 1]
+        box = (box @ M)[0, 0:2, 0:2] # TODO: missing transpose, superfluous inverse?
+        return (box[0], box[1]) # tl, br
+    
+    def get_visible_box_image(self):
+        """
+        Returns top-left and bottom-right coords of currently visible image (!= canvas) region, in [0, 1].
+        The origin of the uv-space is in the top-left.
+        """
+        # Spaces:
+        # uv: x right, y down, range [0, 1]
+        # ndc: x right, y up, range [-1, 1] (OpenGL style)
+
+        # Image's uv range [0, 1] (y flipped) to ncd range [-1, 1]
+        flip_y = np.diag([1, -1, 1])
+        map_01_plusminus1 = np.array([
+            2, 0, -1,
+            0, 2, -1,
+            0, 0,  1,
+        ], dtype=np.float32).reshape(3, 3)
+        uv_to_ndc = flip_y @ map_01_plusminus1
+
+        # Transform that transforms quad (i.e. image)
+        # Y flipping disabled => normal y-up transformation
+        ndc_to_viewport = self.get_quad_transform(flip_y=False)
+        
+        # Visible box: full ndc viewport 
+        # tl in ndc is (-1, 1)
+        # br in ndc is (1, -1)
+        box_viewport = np.array([
+            -1,  1,
+             1, -1,
+             1,  1
+        ], dtype=np.float32).reshape(3, 2) # 2 column vectors
+        
+        # Invert transformations to get viewport box in image's uv space
+        uv_to_viewport = ndc_to_viewport @ uv_to_ndc
+        viewport_to_uv = np.linalg.inv(uv_to_viewport)
+        box_uv = viewport_to_uv @ box_viewport # column vectors
+        
+        # Real quad coords (not visible part)
+        TL, BR = (box_uv[:2, 0], box_uv[:2, 1])
+        #print_slow(f'x: [{TL[0]:.2f} -> {BR[0]:.2f}], y: [{TL[1]:.2f} -> {BR[1]:.2f}]')
+        
+        return (TL, BR)
+
+    def get_hovered_uv_canvas(self):
+        """UVs of currently hovered canvas point, relative to top-left"""
+        tl, br = self.get_visible_box_canvas() # coords in [0, 1]^2
+        xy = np.array(self.mouse_pos_img_norm)
+        u, v = (tl * (1 - xy) + br * xy).tolist()
+        return (u, v)
+    
+    def get_hovered_uv_image(self):
+        """UVs of currently hovered image point, can be negative if out of bounds"""
+        tl, br = self.get_visible_box_image() # uv's in [0, 1]
+        xy = np.array(self.mouse_pos_img_norm)
+        u, v = (tl * (1 - xy) + br * xy).tolist()
+        return (u, v)
+    
+    # Handle pan action
+    def handle_pan(self):
+        u, v = self.get_hovered_uv_canvas()
+        v = (1 - v) # want y up (uv's have y down)
 
         if imgui.is_mouse_clicked(0) and self.mouse_hovers_content():
             self.is_panning = True
-            self.pan_start = (a, b)
+            self.pan_start = (u, v)
         if self.is_panning and imgui.is_mouse_down(0):
-            self.pan_delta = (a - self.pan_start[0], b - self.pan_start[1])
+            self.pan_delta = (u - self.pan_start[0], v - self.pan_start[1])
         if self.is_panning and imgui.is_mouse_released(0):
             self.pan = tuple(s+d for s,d in zip(self.pan, self.pan_delta))
             self.pan_start = self.pan_delta = (0, 0)
