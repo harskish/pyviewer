@@ -334,7 +334,9 @@ class PannableArea():
 
     def get_visible_box_canvas(self):
         """
-        Returns top-left and bottom-right coords of currently visible canvas (!= image) region, in [0, 1].
+        Returns top-left and bottom-right coords of currently visible canvas (!= image) region.
+        Full untransformed canvas matches the unit box [0, 1]^2.
+        The origin of the uv-space is in the top-left.
         """
         box = np.array([
             0.0, 0.0, 1.0,
@@ -346,7 +348,8 @@ class PannableArea():
     
     def get_visible_box_image(self):
         """
-        Returns top-left and bottom-right coords of currently visible image (!= canvas) region, in [0, 1].
+        Returns top-left and bottom-right coords of currently visible image (!= canvas) region.
+        Full untransformed image matches the unit box [0, 1]^2.
         The origin of the uv-space is in the top-left.
         """
         # Spaces:
@@ -387,14 +390,20 @@ class PannableArea():
         return (TL, BR)
 
     def get_hovered_uv_canvas(self):
-        """UVs of currently hovered canvas point, relative to top-left"""
+        """
+        UVs of currently hovered canvas point, relative to top-left.
+        Takes transformation into account.
+        """
         tl, br = self.get_visible_box_canvas() # coords in [0, 1]^2
         xy = np.array(self.mouse_pos_canvas_norm)
         u, v = (tl * (1 - xy) + br * xy).tolist()
         return (u, v)
     
     def get_hovered_uv_image(self):
-        """UVs of currently hovered image point, can be negative if out of bounds"""
+        """
+        UVs of currently hovered image point, relative to top-left texel.
+        Takes current transformation into account, can be outside of [0, 1].
+        """
         tl, br = self.get_visible_box_image() # uv's in [0, 1]
         xy = np.array(self.mouse_pos_canvas_norm)
         u, v = (tl * (1 - xy) + br * xy).tolist()
@@ -428,6 +437,10 @@ class PannableArea():
 
     @property
     def mouse_pos_canvas_norm(self):
+        """
+        Normalized mouse position on canvas, in [0, 1] relative to top-left.
+        Does not consider current transformation.
+        """
         dims = np.array((self.canvas_w, self.canvas_h))
         if any(dims == 0):
             return np.array([-1, -1], dtype=np.float32) # no valid content
