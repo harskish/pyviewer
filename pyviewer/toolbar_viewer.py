@@ -162,6 +162,7 @@ class ToolbarViewer:
         # => get position where it was drawn
         self.output_pos_tl[:] = imgui.get_item_rect_min()
         self.output_pos_br[:] = imgui.get_item_rect_max()
+        #imgui.get_window_draw_list().add_circle(*self.output_pos_tl, 3.0, imgui.get_color_u32_rgba(1,0,1,1), thickness=2) # Tested 3.10.2024, position matches
 
         # Equal spacing
         imgui.columns(2, 'outputBottom', border=False)

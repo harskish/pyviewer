@@ -216,7 +216,10 @@ class PannableArea():
         self.resize_canvas(cW, cH)
 
         # Keep track of content position
-        self.output_pos_tl[:] = imgui.get_item_rect_min()
+        # Cannot use `get_item_rect_min`, since imgui.image hasn't been drawn yet
+        rmin = imgui.get_window_content_region_min()
+        wmin = imgui.get_window_position()
+        self.output_pos_tl[:] = (wmin.x + rmin.x, wmin.y + rmin.y)
         self.img_w = iW
         self.img_h = iH
         self.pan_enabled = pan_enabled
@@ -386,19 +389,22 @@ class PannableArea():
     def get_hovered_uv_canvas(self):
         """UVs of currently hovered canvas point, relative to top-left"""
         tl, br = self.get_visible_box_canvas() # coords in [0, 1]^2
-        xy = np.array(self.mouse_pos_img_norm)
+        xy = np.array(self.mouse_pos_canvas_norm)
         u, v = (tl * (1 - xy) + br * xy).tolist()
         return (u, v)
     
     def get_hovered_uv_image(self):
         """UVs of currently hovered image point, can be negative if out of bounds"""
         tl, br = self.get_visible_box_image() # uv's in [0, 1]
-        xy = np.array(self.mouse_pos_img_norm)
+        xy = np.array(self.mouse_pos_canvas_norm)
         u, v = (tl * (1 - xy) + br * xy).tolist()
         return (u, v)
     
     # Handle pan action
     def handle_pan(self):
+        if not self.pan_enabled:
+            return
+        
         u, v = self.get_hovered_uv_canvas()
         v = (1 - v) # want y up (uv's have y down)
 
@@ -421,14 +427,14 @@ class PannableArea():
         return np.array(imgui.get_mouse_pos())
 
     @property
-    def mouse_pos_img_norm(self):
+    def mouse_pos_canvas_norm(self):
         dims = np.array((self.canvas_w, self.canvas_h))
         if any(dims == 0):
             return np.array([-1, -1], dtype=np.float32) # no valid content
         return (self.mouse_pos_abs - self.output_pos_tl) / dims
 
     def mouse_hovers_content(self):
-        x, y = self.mouse_pos_img_norm
+        x, y = self.mouse_pos_canvas_norm
         return (0 <= x <= 1) and (0 <= y <= 1)
     
     def mouse_wheel_callback(self, window, x, y) -> None:
