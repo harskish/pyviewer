@@ -16,31 +16,6 @@ from functools import wraps
 import OpenGL.GL as gl
 import ctypes
 
-def rate_limit(T, default=None, delay=0):
-    """
-    Do something (expensive) at most every T seconds.
-    Args:
-      T: minimum interval between evaluations, in seconds.
-      default: default return value in case function wasn't called.
-      delay: initial delay, in seconds.
-    """
-    def wrapper(f):
-        @wraps(f)
-        def aux(*args, **kwargs):
-            if time.monotonic() - aux.latest >= T:
-                retval = f(*args, **kwargs)
-                aux.latest = time.monotonic()
-                return retval
-            else:
-                return default
-        aux.latest = time.monotonic() - T + delay
-        return aux
-    return wrapper
-
-@rate_limit(T=0.5)
-def print_slow(*args, **kwargs):
-    print(*args, **kwargs)
-
 # ImGui widget that wraps arbitrary object and allows mouse pand & zoom controls.
 # Does not transform texture coordinates; instead transforms a single textured quad.
 # Panning produces no temporal aliasing: the pan follows the mouse, which moves in one pixel increments.
@@ -264,16 +239,27 @@ class PannableArea():
     def set_callbacks(self, glfw_window):
         self.prev_cbk = glfw.set_scroll_callback(glfw_window, self.mouse_wheel_callback)
     
+    def get_transform(self):
+        """
+        Get current image transform.
+        Standard mathematical conventions: x-axis right, y-axis up.
+        Origin at (0, 0), unit scale translation (edge to edge has magnitude 1.0f).
+        """
+        M = np.eye(3, dtype=np.float32)
+        M[0, 2] = (self.pan[0]+self.pan_delta[0])
+        M[1, 2] = (self.pan[1]+self.pan_delta[1])
+        M = np.diag((self.zoom, self.zoom, 1)) @ M # zoom relative to viewport center (post-translation)
+        return M
+
     def get_transform_ndc(self):
         """
         Get current image transform.
         Standard mathematical conventions: x-axis right, y-axis up.
-        Origin at (0, 0), can be applied to coordinates in NDC space ([-1, 1]).
-        Screen-width translation from origin to edge is of scale 1.0f
+        Origin at (0, 0), ndc scale translation (edge to edge has magnitude 2.0f).
         """
         M = np.eye(3, dtype=np.float32)
-        M[0, 2] += (self.pan[0]+self.pan_delta[0])*2
-        M[1, 2] += (self.pan[1]+self.pan_delta[1])*2
+        M[0, 2] = (self.pan[0]+self.pan_delta[0])*2
+        M[1, 2] = (self.pan[1]+self.pan_delta[1])*2
         M = np.diag((self.zoom, self.zoom, 1)) @ M # zoom relative to viewport center (post-translation)
         return M
     
@@ -305,6 +291,7 @@ class PannableArea():
         """
         Get the matrix that transforms the textured quad before rendering.
         Takes content and window aspect ratios into account.
+        Quad is in ndc space when this transformation is applied.
         """
         # Get current pan/zoom xform
         # Normal mathematical conventions (y-up)
@@ -346,6 +333,42 @@ class PannableArea():
         box = (box @ M)[0, 0:2, 0:2] # TODO: missing transpose, superfluous inverse?
         return (box[0], box[1]) # tl, br
     
+    def img_uv_to_screen_pos_xform(self):
+        """
+        Matrix that transforms image uvs to absolute screen positions (after pan and zoom).
+        Both spaces have TL origin, y axis down.
+        """
+        center = np.array([
+            2, 0, -1,
+            0, 2, -1,
+            0, 0,  1,
+        ], dtype=np.float32).reshape(3, 3)
+        flip_y = np.diag([1, -1, 1])
+        
+        # Step 1: map from uv space to ndc space
+        uv_to_ndc = flip_y @ center
+
+        # Step 2: apply aspect ratio and user transform
+        xform = self.get_quad_transform(flip_y=False)
+
+        # Step 3: back to uv space
+        ndc_to_uv = np.linalg.inv(uv_to_ndc)
+
+        # Step 4: uv to screen pos
+        W, H = self.canvas_w, self.canvas_h
+        px, py = self.output_pos_tl
+        uv_to_screen = np.array([
+            W, 0, px,
+            0, H, py,
+            0, 0,  1,
+        ]).reshape(3, 3)
+
+        return (uv_to_screen @ ndc_to_uv @ xform @ uv_to_ndc)
+
+    def screen_pos_to_img_uv_xform(self):
+        """Matrix that transforms absolute screen positions (e.g. mouse pos) to image uvs."""
+        return np.linalg.inv(self.img_uv_to_screen_pos_xform())
+    
     def get_visible_box_image(self):
         """
         Returns top-left and bottom-right coords of currently visible image (!= canvas) region.
@@ -385,7 +408,7 @@ class PannableArea():
         
         # Real quad coords (not visible part)
         TL, BR = (box_uv[:2, 0], box_uv[:2, 1])
-        #print_slow(f'x: [{TL[0]:.2f} -> {BR[0]:.2f}], y: [{TL[1]:.2f} -> {BR[1]:.2f}]')
+        #slow_print(f'x: [{TL[0]:.2f} -> {BR[0]:.2f}], y: [{TL[1]:.2f} -> {BR[1]:.2f}]')
         
         return (TL, BR)
 
@@ -710,3 +733,33 @@ def normalize_image_data(img_hwc, target_dtype='uint8'):
     img_hwc = img_hwc[:, :, :3]
 
     return img_hwc
+
+def rate_limit(T, default=None, delay=0):
+    """
+    Do something (expensive) at most every T seconds.
+    Args:
+      T: minimum interval between evaluations, in seconds.
+      default: default return value in case function wasn't called.
+      delay: initial delay, in seconds.
+    """
+    def wrapper(f):
+        @wraps(f)
+        def aux(*args, **kwargs):
+            if time.monotonic() - aux.latest >= T:
+                retval = f(*args, **kwargs)
+                aux.latest = time.monotonic()
+                return retval
+            else:
+                return default
+        aux.latest = time.monotonic() - T + delay
+        return aux
+    return wrapper
+
+@rate_limit(T=0.5)
+def slow_print(*args, **kwargs):
+    print(*args, **kwargs)
+
+def lazy_print(s: str):
+    if s != getattr(lazy_print, "prev", None):
+        print(s)
+        setattr(lazy_print, "prev", s)
