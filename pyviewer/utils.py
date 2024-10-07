@@ -47,6 +47,15 @@ class PannableArea():
             assert glfw_window, 'Must provide glfw window for callback setting'
             self.set_callbacks(glfw_window)
 
+        # Precopute a few transformations
+        center = np.array([
+            2, 0, -1,
+            0, 2, -1,
+            0, 0,  1,
+        ], dtype=np.float32).reshape(3, 3)
+        self.uv_to_ndc = np.diag([1, -1, 1]) @ center
+        self.ndc_to_uv = np.linalg.inv(self.uv_to_ndc)
+
     def resize_canvas(self, W, H):
         if self.canvas_w == W and self.canvas_h == H:
             return
@@ -333,42 +342,6 @@ class PannableArea():
         box = (box @ M)[0, 0:2, 0:2] # TODO: missing transpose, superfluous inverse?
         return (box[0], box[1]) # tl, br
     
-    def img_uv_to_screen_pos_xform(self):
-        """
-        Matrix that transforms image uvs to absolute screen positions (after pan and zoom).
-        Both spaces have TL origin, y axis down.
-        """
-        center = np.array([
-            2, 0, -1,
-            0, 2, -1,
-            0, 0,  1,
-        ], dtype=np.float32).reshape(3, 3)
-        flip_y = np.diag([1, -1, 1])
-        
-        # Step 1: map from uv space to ndc space
-        uv_to_ndc = flip_y @ center
-
-        # Step 2: apply aspect ratio and user transform
-        xform = self.get_quad_transform(flip_y=False)
-
-        # Step 3: back to uv space
-        ndc_to_uv = np.linalg.inv(uv_to_ndc)
-
-        # Step 4: uv to screen pos
-        W, H = self.canvas_w, self.canvas_h
-        px, py = self.output_pos_tl
-        uv_to_screen = np.array([
-            W, 0, px,
-            0, H, py,
-            0, 0,  1,
-        ]).reshape(3, 3)
-
-        return (uv_to_screen @ ndc_to_uv @ xform @ uv_to_ndc)
-
-    def screen_pos_to_img_uv_xform(self):
-        """Matrix that transforms absolute screen positions (e.g. mouse pos) to image uvs."""
-        return np.linalg.inv(self.img_uv_to_screen_pos_xform())
-    
     def get_visible_box_image(self):
         """
         Returns top-left and bottom-right coords of currently visible image (!= canvas) region.
@@ -380,13 +353,6 @@ class PannableArea():
         # ndc: x right, y up, range [-1, 1] (OpenGL style)
 
         # Image's uv range [0, 1] (y flipped) to ncd range [-1, 1]
-        flip_y = np.diag([1, -1, 1])
-        map_01_plusminus1 = np.array([
-            2, 0, -1,
-            0, 2, -1,
-            0, 0,  1,
-        ], dtype=np.float32).reshape(3, 3)
-        uv_to_ndc = flip_y @ map_01_plusminus1
 
         # Transform that transforms quad (i.e. image)
         # Y flipping disabled => normal y-up transformation
@@ -402,7 +368,7 @@ class PannableArea():
         ], dtype=np.float32).reshape(3, 2) # 2 column vectors
         
         # Invert transformations to get viewport box in image's uv space
-        uv_to_viewport = ndc_to_viewport @ uv_to_ndc
+        uv_to_viewport = ndc_to_viewport @ self.uv_to_ndc
         viewport_to_uv = np.linalg.inv(uv_to_viewport)
         box_uv = viewport_to_uv @ box_viewport # column vectors
         
@@ -411,6 +377,34 @@ class PannableArea():
         #slow_print(f'x: [{TL[0]:.2f} -> {BR[0]:.2f}], y: [{TL[1]:.2f} -> {BR[1]:.2f}]')
         
         return (TL, BR)
+    
+    def uv_to_screen_xform(self):
+        """
+        Matrix that transforms image uvs to absolute screen positions (after pan and zoom).
+        Both spaces have TL origin, y axis down.
+        """        
+        
+        # Step 1: map from uv space to ndc space
+
+        # Step 2: apply aspect ratio and user transform
+        xform = self.get_quad_transform(flip_y=False)
+
+        # Step 3: back to uv space
+
+        # Step 4: uv to screen pos
+        W, H = self.canvas_w, self.canvas_h
+        px, py = self.output_pos_tl
+        uv_to_screen = np.array([
+            W, 0, px,
+            0, H, py,
+            0, 0,  1,
+        ]).reshape(3, 3)
+
+        return (uv_to_screen @ self.ndc_to_uv @ xform @ self.uv_to_ndc)
+
+    def screen_to_uv_xform(self):
+        """Matrix that transforms absolute screen positions (e.g. mouse pos) to image uvs."""
+        return np.linalg.inv(self.uv_to_screen_xform)
 
     def get_hovered_uv_canvas(self):
         """
@@ -436,20 +430,19 @@ class PannableArea():
     def handle_pan(self):
         if not self.pan_enabled:
             return
-        
-        u, v = self.get_hovered_uv_canvas()
-        v = (1 - v) # want y up (uv's have y down)
 
         if imgui.is_mouse_clicked(0) and self.mouse_hovers_content():
+            u, v = self.get_hovered_uv_canvas()
+            self.pan_start = (u, 1 - v) # convert to y-up
             self.is_panning = True
-            self.pan_start = (u, v)
         if self.is_panning and imgui.is_mouse_down(0):
-            self.pan_delta = (u - self.pan_start[0], v - self.pan_start[1])
+            u, v = self.get_hovered_uv_canvas()
+            self.pan_delta = (u - self.pan_start[0], (1 - v) - self.pan_start[1]) # convert to y-up
         if self.is_panning and imgui.is_mouse_released(0):
             self.pan = tuple(s+d for s,d in zip(self.pan, self.pan_delta))
             self.pan_start = self.pan_delta = (0, 0)
             self.is_panning = False
-        if imgui.is_mouse_double_clicked(0) and self.mouse_hovers_content():  # Reset view
+        if imgui.is_mouse_double_clicked(0) and self.mouse_hovers_content(): # reset view
             self.pan = self.pan_start = self.pan_delta = (0, 0)
             self.zoom = 1.0
             self.is_panning = False
