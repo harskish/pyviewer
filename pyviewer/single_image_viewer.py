@@ -166,7 +166,7 @@ class SingleImageViewer:
             return
 
         # Activate image mode
-        self.viz_mode.value = VizMode.IMAGE
+        self.viz_mode.value = VizMode.IMAGE.value
         
         if not has_torch:
             assert isinstance(img_hwc, (type(None), np.ndarray)), 'PyTorch not available, only numpy arrays supported'
