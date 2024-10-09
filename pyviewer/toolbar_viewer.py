@@ -155,7 +155,7 @@ class ToolbarViewer:
         tex_in = v._images.get(self.output_key)
         if tex_in:
             canvas_size = (cW, cH - BOTTOM_PAD)
-            tex = self.pan_handler.draw_to_canvas(tex_in.tex, *self.content_size_px, *canvas_size, self.pan_enabled)
+            tex = self.pan_handler.draw_to_canvas(tex_in.tex, tex_in.shape[1], tex_in.shape[0], *canvas_size, self.pan_enabled)
             imgui.image(tex, *canvas_size)
 
         # Imgui.image drawn above
