@@ -40,8 +40,8 @@ class PannableArea():
         self.canvas_h = 0
         
         # Size of image on screen (not texture dims)
-        self.img_h = 0
-        self.img_w = 0
+        self.tex_h = 0
+        self.tex_w = 0
 
         if set_callbacks:
             assert glfw_window, 'Must provide glfw window for callback setting'
@@ -183,9 +183,9 @@ class PannableArea():
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._vbo_handle)
         gl.glBufferData(gl.GL_ARRAY_BUFFER, 4 * vertex_size, vertices, gl.GL_STATIC_DRAW)
 
-    # iW, iH = image size
+    # tW, tH = input texture size
     # cW, cH = canvas size
-    def draw_to_canvas(self, texture_in, iW, iH, cW, cH, pan_enabled=True):
+    def draw_to_canvas(self, texture_in, tW, tH, cW, cH, pan_enabled=True):
         last_texture = gl.glGetIntegerv(gl.GL_TEXTURE_BINDING_2D)
         last_array_buffer = gl.glGetIntegerv(gl.GL_ARRAY_BUFFER_BINDING)
         last_vertex_array = gl.glGetIntegerv(gl.GL_VERTEX_ARRAY_BINDING)
@@ -204,8 +204,8 @@ class PannableArea():
         rmin = imgui.get_window_content_region_min()
         wmin = imgui.get_window_position()
         self.output_pos_tl[:] = (wmin.x + rmin.x, wmin.y + rmin.y)
-        self.img_w = iW
-        self.img_h = iH
+        self.tex_w = tW
+        self.tex_h = tH
         self.pan_enabled = pan_enabled
 
         # Update pan & zoom state
@@ -312,8 +312,11 @@ class PannableArea():
         # Image size is computed to fill smaller canvas dimension
         # Account for this scaling to prevent image stretching
         # => squish quad to same aspect ratio as image
-        aspect = np.diag([self.img_w/self.canvas_w, self.img_h/self.canvas_h, 1])
-        xform = flip @ xform @ aspect
+        aspect = self.tex_w / self.tex_h
+        out_width = min(self.canvas_w, aspect*self.canvas_h)
+        final_size = (out_width, out_width / aspect)
+        corr = np.diag([final_size[0]/self.canvas_w, final_size[1]/self.canvas_h, 1])
+        xform = flip @ xform @ corr
         
         return xform
     
@@ -467,10 +470,15 @@ class PannableArea():
         return (0 <= x <= 1) and (0 <= y <= 1)
     
     def mouse_wheel_callback(self, window, x, y) -> None:
-        if self.mouse_hovers_content() and self.zoom_enabled:
-            self.zoom = max(1e-2, (0.85**np.sign(-y)) * self.zoom)
-        else:
-            self.prev_cbk(window, x, y) # scroll imgui lists etc.
+        if not (self.mouse_hovers_content() and self.zoom_enabled):
+            return self.prev_cbk(window, x, y) # scroll imgui lists etc.
+        
+        width_filled = (self.tex_w / self.tex_h) > (self.canvas_w / self.canvas_h)
+        scale_fill_w = self.tex_w / self.tex_h if width_filled else 1
+        scale_fill_h = scale_fill_w * (self.canvas_h / self.canvas_w) if width_filled else 1
+        zoom_max = 0.5 * scale_fill_h * self.tex_h # canvas height convers 2 pixels
+        zoom_min = 10 / min(self.canvas_h, self.canvas_w) # canvas ~10x10 pixels
+        self.zoom = min(zoom_max, max(zoom_min, self.zoom * (1.0 + y * 0.035)))
 
 # Dataclass that enforces type annotation
 # Enables compare-by-value
