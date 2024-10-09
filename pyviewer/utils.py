@@ -12,6 +12,7 @@ import string
 import time
 from textwrap import dedent
 from functools import wraps
+from platform import system
 
 import OpenGL.GL as gl
 import ctypes
@@ -473,12 +474,12 @@ class PannableArea():
         if not (self.mouse_hovers_content() and self.zoom_enabled):
             return self.prev_cbk(window, x, y) # scroll imgui lists etc.
         
-        width_filled = (self.tex_w / self.tex_h) > (self.canvas_w / self.canvas_h)
-        scale_fill_w = self.tex_w / self.tex_h if width_filled else 1
-        scale_fill_h = scale_fill_w * (self.canvas_h / self.canvas_w) if width_filled else 1
+        # MacOS trackpad needs separate speed
+        speed = 0.035 if system() == 'Darwin' else 0.15
+        scale_fill_h = max(1, (self.tex_w / self.tex_h) * (self.canvas_h / self.canvas_w))
         zoom_max = 0.5 * scale_fill_h * self.tex_h # canvas height convers 2 pixels
-        zoom_min = 10 / min(self.canvas_h, self.canvas_w) # canvas ~10x10 pixels
-        self.zoom = min(zoom_max, max(zoom_min, self.zoom * (1.0 + y * 0.035)))
+        zoom_min = 50 / min(self.canvas_h, self.canvas_w) # canvas ~50x50 pixels
+        self.zoom = min(zoom_max, max(zoom_min, self.zoom * (1.0 + y * speed)))
 
 # Dataclass that enforces type annotation
 # Enables compare-by-value
