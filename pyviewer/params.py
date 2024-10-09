@@ -109,11 +109,13 @@ class Int3Param(_Range3Param):
         return imgui.slider_int3(self.label, *self.value, self.min, self.max)
 
 class FloatParam(_RangeParam):
-    def __init__(self, label, default_val: float, minval, maxval, tooltip: str = None) -> None:
+    def __init__(self, label, default_val: float, minval, maxval, log=False, tooltip: str = None) -> None:
         super().__init__(float, label, default_val, minval, maxval, tooltip)
+        self.log = log
     
     def draw_widget(self):
-        return imgui.slider_float(self.label, self.value, self.min, self.max)
+        flags = imgui.SLIDER_FLAGS_LOGARITHMIC if self.log else imgui.SLIDER_FLAGS_NONE
+        return imgui.slider_float(self.label, self.value, self.min, self.max, flags=flags)
     
 class Float2Param(_Range2Param):
     def __init__(self, label, default_val: Tuple[float], minval, maxval, overlap: bool = True, tooltip: str = None) -> None:
