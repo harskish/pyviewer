@@ -28,9 +28,10 @@ class PannableArea():
         self.is_panning = False # currently panning?
         self.pan_enabled = True
         self.zoom_enabled = True
+        # Pan magnitude: image edges at +-0.5 at unit scale
         self.pan = (0, 0)
-        self.pan_start = (0, 0)
         self.pan_delta = (0, 0)
+        self.pan_start = (0, 0)
         self.zoom: float = 1.0
         self.clear_color = (0, 0, 0, 1) # in [0, 1]
 
@@ -297,6 +298,17 @@ class PannableArea():
         """
         return self.get_transform_scaled(1, 1)
     
+    def get_quad_scale_corr(self):
+        """Get quad vs. image aspect ratio scale correction"""
+        # Image size is computed to fill smaller canvas dimension
+        # Account for this scaling to prevent image stretching
+        # => squish quad to same aspect ratio as image
+        aspect = self.tex_w / self.tex_h
+        out_width = min(self.canvas_w, aspect*self.canvas_h)
+        final_size = (out_width, out_width / aspect)
+        corr = np.diag([final_size[0]/self.canvas_w, final_size[1]/self.canvas_h, 1])
+        return corr
+
     def get_quad_transform(self, flip_y=True):
         """
         Get the matrix that transforms the textured quad before rendering.
@@ -310,13 +322,7 @@ class PannableArea():
         # Flipping: not for fixing texture access; want to flip whole y axis (quad position included)
         flip = np.diag([1, -1, 1]) if flip_y else np.eye(3)
 
-        # Image size is computed to fill smaller canvas dimension
-        # Account for this scaling to prevent image stretching
-        # => squish quad to same aspect ratio as image
-        aspect = self.tex_w / self.tex_h
-        out_width = min(self.canvas_w, aspect*self.canvas_h)
-        final_size = (out_width, out_width / aspect)
-        corr = np.diag([final_size[0]/self.canvas_w, final_size[1]/self.canvas_h, 1])
+        corr = self.get_quad_scale_corr()
         xform = flip @ xform @ corr
         
         return xform
@@ -479,7 +485,16 @@ class PannableArea():
         scale_fill_h = max(1, (self.tex_w / self.tex_h) * (self.canvas_h / self.canvas_w))
         zoom_max = 0.5 * scale_fill_h * self.tex_h # canvas height convers 2 pixels
         zoom_min = 50 / min(self.canvas_h, self.canvas_w) # canvas ~50x50 pixels
-        self.zoom = min(zoom_max, max(zoom_min, self.zoom * (1.0 + y * speed)))
+        new_zoom = min(zoom_max, max(zoom_min, self.zoom * (1.0 + y * speed)))
+
+        # Zoom relative to mouse cursor
+        # => keep same UV under cursor after zooming
+        center_uv = 0.5 * sum(self.get_visible_box_canvas())
+        mouse_pos = np.array(self.get_hovered_uv_canvas())
+        dt = mouse_pos - center_uv # center to mouse cursor
+        dm = dt * ((self.zoom / new_zoom) - 1) # movement of cursor UV due to zoom
+        self.pan = np.array(self.pan) + dm * np.array([1, -1]) # to y up
+        self.zoom = new_zoom
 
 # Dataclass that enforces type annotation
 # Enables compare-by-value
