@@ -24,9 +24,29 @@ A viewer that shows ImGui UI elemets on the left, and a large image on the right
 * Bundles a [custom build](https://github.com/harskish/pyplotgui) of PyImGui with plotting support (via ImPlot)
 * Dynamically rescalable user interface
 * Window resizing to integer multiple of content resolution
+* Pan and zoom of the main image
 
 ## Installation
 `pip install pyviewer`
 
 ## Usage
 See `examples/demo.py` for a usage example.
+
+## API highlights
+`PannableArea::screen_to_uv_xform`<br>
+Maps absolute screen coordinates (e.g. `imgui.get_mouse_pos()`) to transformed image UVs, useful for picking etc.<br>
+
+`PannableArea::uv_to_screen_xform`<br>
+Maps image UVs to absolute screen coordinates. Useful when combined with imgui's [draw lists](https://pyimgui.readthedocs.io/en/latest/reference/imgui.core.html#imgui.core._DrawList).
+
+`PannableArea::get_visible_box_image()`<br>
+Returns the top-left and bottom-right UV coordinates of the currently visible image region.<br>
+
+`PannableArea::get_hovered_uv_image()`<br>
+Returns the image UVs that lie under the mouse cursor.
+
+`PannableArea::get_hovered_uv_canvas()`<br>
+Returns the *canvas* UVs that lie under the mouse cursor. Differs from the image UVs in case of non-matching image and window aspect ratios.
+
+`from pyviewer.single_image_viewer import draw; draw(img_chw=...)`<br>
+One-liner that opens a new viewer (unless already open) and draws the provided image. Runs in a separate process and thus works even when execution is halted by e.g. a debugger.
