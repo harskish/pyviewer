@@ -211,7 +211,8 @@ class PannableArea():
         self.pan_enabled = pan_enabled
 
         # Update pan & zoom state
-        self.handle_pan()
+        if self.pan_enabled:
+            self.handle_pan()
 
         #gl.glDisable(gl.GL_BLEND)
         gl.glDisable(gl.GL_CULL_FACE)
@@ -438,9 +439,6 @@ class PannableArea():
     
     # Handle pan action
     def handle_pan(self):
-        if not self.pan_enabled:
-            return
-
         if imgui.is_mouse_clicked(0) and self.mouse_hovers_content():
             u, v = self.get_hovered_uv_canvas()
             self.pan_start = (u, 1 - v) # convert to y-up
