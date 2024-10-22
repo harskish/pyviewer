@@ -304,6 +304,8 @@ class PannableArea():
         # Image size is computed to fill smaller canvas dimension
         # Account for this scaling to prevent image stretching
         # => squish quad to same aspect ratio as image
+        if self.tex_h == 0 or self.tex_h == 0:
+            return np.diag([1, 1, 1])
         aspect = self.tex_w / self.tex_h
         out_width = min(self.canvas_w, aspect*self.canvas_h)
         final_size = (out_width, out_width / aspect)
@@ -437,6 +439,11 @@ class PannableArea():
         u, v = (tl * (1 - xy) + br * xy).tolist()
         return (u, v)
     
+    def reset_xform(self):
+        self.pan = self.pan_start = self.pan_delta = (0, 0)
+        self.zoom = 1.0
+        self.is_panning = False
+    
     # Handle pan action
     def handle_pan(self):
         if imgui.is_mouse_clicked(0) and self.mouse_hovers_content():
@@ -451,9 +458,7 @@ class PannableArea():
             self.pan_start = self.pan_delta = (0, 0)
             self.is_panning = False
         if imgui.is_mouse_double_clicked(0) and self.mouse_hovers_content(): # reset view
-            self.pan = self.pan_start = self.pan_delta = (0, 0)
-            self.zoom = 1.0
-            self.is_panning = False
+            self.reset_xform()
     
     @property
     def mouse_pos_abs(self):
