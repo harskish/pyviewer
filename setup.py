@@ -35,6 +35,7 @@ setup(name='pyviewer',
         'numpy',
         'pyopengl>3.0.0',
         'pyplotgui',  # custom imgui+implot package
+        'setuptools<=72.1.0', # github.com/pytorch/pytorch/issues/136541
         'light-process==0.0.7',
         'ninja', # for custom OP
     ],

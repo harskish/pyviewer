@@ -100,7 +100,7 @@ def get_plugin(
             # Dependencies.exe -chain cuda_gl_interop.pyd -depth 1
             print('DLL load failed, make sure all DLLs required by module are available (NB: $PATH and cwd are not searched)')
     except Exception as e:
-        pass
+        print('Custom op compilation failed:', e)
     finally:
         os.chdir(original)
     return importlib.import_module(plugin_name)

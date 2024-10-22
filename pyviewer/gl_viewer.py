@@ -354,6 +354,9 @@ class viewer:
                 glyph_ranges=handle.get_glyph_ranges_chinese_full()) for size in font_sizes
         }
 
+        # TODO: add scale field to font?
+        # github.com/harskish/pyplotgui/blob/dev/version-2.0/imgui/core.pyx#L2344
+
         self._context_lock = mp.Lock()
         self._context_tid = None # id of thread in critical section
         self.set_ui_scale(self.ui_scale)

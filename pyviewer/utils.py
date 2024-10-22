@@ -674,12 +674,14 @@ def copy_with_progress(pth_from: Path, pth_to: Path):
     os.makedirs(pth_to.parent, exist_ok=True)
     return shutil.copyfileobj(open_prog(pth_from, 'rb', pth_to.name), open(pth_to, 'ab'))
 
-# File open with progress bar
-# For slow network drives etc.
-# Supports context manager
-def open_prog(pth, mode, name=None):
+def open_prog(pth, mode, name=None, progress_cbk=None):
+    """
+    File open with progress bar, for slow network drives etc.
+    Supports context manager.
+    progress_cbk: callback with interface def()
+    """
     from tqdm import tqdm
-
+    
     assert mode in ['r', 'rb'], 'Only r and rb supported'
     total_size = int(os.path.getsize(pth))
     label = Path(pth).name if name is None else name
@@ -688,6 +690,8 @@ def open_prog(pth, mode, name=None):
 
     def update(size):
         pbar.update(size)
+        if progress_cbk is not None:
+            progress_cbk(pbar.n, total_size)
         if pbar.n == pbar.total:
             pbar.refresh()
             pbar.close()
