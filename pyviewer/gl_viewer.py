@@ -46,8 +46,8 @@ except Exception:
 # CUDA-GL copy via PyTorch extension
 pt_plugin = None
 try:
-    from . import custom_ops
     if torch_has_cuda:
+        from . import custom_ops
         pt_plugin = custom_ops.get_plugin('cuda_gl_interop', 'cuda_gl_interop.cpp', Path(__file__).parent / './custom_ops', unsafe_load_prebuilt=True)
 except Exception as e:
     print('Failed to build CUDA-GL plugin')
