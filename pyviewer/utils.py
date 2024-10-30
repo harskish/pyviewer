@@ -790,10 +790,13 @@ def lazy_print(s: str):
 
 def resolve_lnk(p: Path):
     """Resolve Windows path containing shortcuts (.lnk)"""
-    if system() != 'Windows' or p.exists():
+    if system() != 'Windows':
         return p
 
-    p = p.absolute()
+    p = Path(p).absolute()
+    if p.exists():
+        return p
+
     root, *parents = [p, *p.parents][::-1]
     
     for p in parents:
