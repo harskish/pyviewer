@@ -787,3 +787,25 @@ def lazy_print(s: str):
     if s != getattr(lazy_print, "prev", None):
         print(s)
         setattr(lazy_print, "prev", s)
+
+def resolve_lnk(p: Path):
+    """Resolve Windows path containing shortcuts (.lnk)"""
+    if system() != 'Windows' or p.exists():
+        return p
+
+    p = p.absolute()
+    root, *parents = [p, *p.parents][::-1]
+    
+    for p in parents:
+        root = root / p.name
+        lnk = root.with_suffix('.lnk')
+        if root.exists():
+            continue
+        elif lnk.is_file():
+            import win32com.client
+            shell = win32com.client.Dispatch("WScript.Shell")
+            root = Path(shell.CreateShortCut(str(lnk)).Targetpath)
+        elif root.is_symlink():
+            raise RuntimeError('Unhandled link type')
+    
+    return root
