@@ -789,12 +789,18 @@ def lazy_print(s: str):
         setattr(lazy_print, "prev", s)
 
 def resolve_lnk(p: Path):
-    """Resolve Windows path containing shortcuts (.lnk)"""
+    """
+    Resolve Windows path containing shortcuts (.lnk).
+    Supports three cases:
+    1. Target is a .lnk
+    2. Path to target contains a .lnk
+    3. Both of the above
+    """
     if system() != 'Windows':
         return p
 
     p = Path(p).absolute()
-    if p.exists():
+    if p.exists() and p.suffix != '.lnk':
         return p
 
     root, *parents = [p, *p.parents][::-1]
@@ -802,7 +808,7 @@ def resolve_lnk(p: Path):
     for p in parents:
         root = root / p.name
         lnk = root.with_suffix('.lnk')
-        if root.exists():
+        if root.exists() and root.suffix != '.lnk':
             continue
         elif lnk.is_file():
             import win32com.client
@@ -812,3 +818,7 @@ def resolve_lnk(p: Path):
             raise RuntimeError('Unhandled link type')
     
     return root
+
+import inspect
+def __LINE__():
+    return str(inspect.currentframe().f_back.f_lineno)
