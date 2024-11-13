@@ -29,7 +29,7 @@ except:
     pass
 
 from . import gl_viewer
-from .utils import begin_inline, normalize_image_data, PannableArea
+from .utils import begin_inline, normalize_image_data, reshape_grid, PannableArea
 
 class ImgShape(ctypes.Structure):
     _fields_ = [('h', ctypes.c_uint), ('w', ctypes.c_uint), ('c', ctypes.c_uint)]
@@ -362,6 +362,10 @@ def show_window():
 def draw(*, img_hwc=None, img_chw=None, ignore_pause=False):
     init('SIV') # no-op if init already performed
     inst.draw(img_hwc, img_chw, ignore_pause)
+
+def grid(*, img_nchw=None, ignore_pause=False):
+    init('SIV') # no-op if init already performed
+    inst.draw(img_hwc=reshape_grid(img_nchw=img_nchw), ignore_pause=ignore_pause)
 
 def plot(y, *, x=None, ignore_pause=False):
     init('SIV') # no-op if init already performed

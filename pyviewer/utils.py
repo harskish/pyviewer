@@ -654,8 +654,8 @@ def reshape_grid_torch(img_batch):
 
     return img_batch
 
-def reshape_grid(batch):
-    return reshape_grid_np(batch) if isinstance(batch, np.ndarray) else reshape_grid_torch(batch)
+def reshape_grid(img_nchw):
+    return reshape_grid_np(img_nchw) if isinstance(img_nchw, np.ndarray) else reshape_grid_torch(img_nchw)
 
 def sample_seeds(N, base=None):
     if base is None:
