@@ -89,10 +89,11 @@ class PannableArea():
         gl.glBindTexture(gl.GL_TEXTURE_2D, last_texture)
 
     def init_gl(self, canvas_width, canvas_height):
+        # Canvas always rendered at native scale, interp. should be irrelevant
         self.canvas_tex = gl.glGenTextures(1)
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.canvas_tex)
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
         self.resize_canvas(canvas_width, canvas_height)
 
         # Framebuffer for offscreen rendering

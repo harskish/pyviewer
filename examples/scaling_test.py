@@ -49,12 +49,15 @@ class PATTERNS(Enum):
     GRID = 'Grid'
     STAR = 'Siemens star'
 
-class Test(pyviewer.toolbar_viewer.ToolbarViewer):
+from pyviewer.toolbar_viewer import ToolbarViewer
+class Test(ToolbarViewer):
     def setup_state(self):
         self.auto_res = True  # res based on window size
         self.width = 512
         self.height = 512
         self.pattern = PATTERNS.STAR
+        self.nearest = True
+        self.pan_handler.zoom = np.e
     
     def compute(self):
         if self.auto_res:
@@ -75,11 +78,16 @@ class Test(pyviewer.toolbar_viewer.ToolbarViewer):
         return img
     
     def draw_toolbar(self):
-        self.pattern = combo_box_vals('Pattern', PATTERNS, self.pattern, to_str=lambda p: p.value)[1]
+        self.pattern = combo_box_vals('Pattern', PATTERNS, self.pattern, to_str=lambda p: p.value)[1][0]
         self.auto_res = imgui.checkbox('Auto-res', self.auto_res)[1]
         self.pan_enabled = imgui.checkbox('Use shader', self.pan_enabled)[1]
         self.width = imgui.slider_int('Width', self.width, 4, 2048*4)[1]
         self.height = imgui.slider_int('Height', self.height, 4, 2048*4)[1]
+        ch, self.nearest = imgui.checkbox('Nearest interp.', self.nearest)
+        if ch:
+            self.v.set_interp_nearest() if self.nearest else self.v.set_interp_linear()
+        self.pan_handler.zoom = imgui.slider_float('Zoom', self.pan_handler.zoom, 0, 10)[1]
+
 
 _ = Test('test_viewer')
 siv.inst.close()

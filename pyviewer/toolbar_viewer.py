@@ -182,10 +182,18 @@ class ToolbarViewer:
         for i, s in enumerate(sizes):
             imgui.same_line(position=pad_left+i*button_W)
             if imgui.button(f'{s}x', width=button_W-4): # tiny pad
-                resW = int(self.img_shape[2] * float(s))
-                resH = int(self.img_shape[1] * float(s))
-                glfw.set_window_size(v._window,
-                    width=resW+W-cW, height=resH+H-cH+BOTTOM_PAD)
+                if not self.pan_enabled:
+                    # Resize window
+                    resW = int(self.img_shape[2] * float(s))
+                    resH = int(self.img_shape[1] * float(s))
+                    glfw.set_window_size(v._window,
+                        width=resW+W-cW, height=resH+H-cH+BOTTOM_PAD)
+                else:
+                    # Set zoom level
+                    sw = self.pan_handler.canvas_w / self.pan_handler.tex_w
+                    sh = self.pan_handler.canvas_h / self.pan_handler.tex_h
+                    scale = float(s) / min(sw, sh)
+                    self.pan_handler.zoom = scale
         imgui.end_child()
 
         imgui.columns(1)
