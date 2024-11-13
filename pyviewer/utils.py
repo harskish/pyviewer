@@ -29,7 +29,7 @@ class PannableArea():
         self.pan_enabled = True
         self.zoom_enabled = True
         # Pan magnitude: image edges at +-0.5 at unit scale
-        self.pan = (0, 0)
+        self.pan = (0, 0) # canvas UV scale
         self.pan_delta = (0, 0)
         self.pan_start = (0, 0)
         self.zoom: float = 1.0
@@ -92,8 +92,8 @@ class PannableArea():
         # Canvas always rendered at native scale, interp. should be irrelevant
         self.canvas_tex = gl.glGenTextures(1)
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.canvas_tex)
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
         self.resize_canvas(canvas_width, canvas_height)
 
         # Framebuffer for offscreen rendering

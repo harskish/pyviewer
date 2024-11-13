@@ -194,6 +194,9 @@ class ToolbarViewer:
                     sh = self.pan_handler.canvas_h / self.pan_handler.tex_h
                     scale = float(s) / min(sw, sh)
                     self.pan_handler.zoom = scale
+                    # Make sure reads happen at texel centers
+                    #px, py = self.pan_handler.pan
+                    #self.pan_handler.pan = (px + 0.5 / self.pan_handler.canvas_w, py + 0.5 / self.pan_handler.canvas_h)
         imgui.end_child()
 
         imgui.columns(1)
