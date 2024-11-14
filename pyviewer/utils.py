@@ -154,6 +154,7 @@ class PannableArea():
             #version 330
             uniform sampler2D tex;
             uniform ivec2 canvas_size;
+            uniform ivec2 texture_size;
             uniform int debug_mode;
             in vec2 v_texcoord;
             in vec3 v_color;
@@ -161,8 +162,8 @@ class PannableArea():
 
             void main()
             {
-                vec2 tex_uv = vec2(canvas_size) * v_texcoord;
-                vec2 frac = tex_uv - int(tex_uv);
+                vec2 tex_uv = vec2(texture_size) * v_texcoord;
+                vec2 frac = tex_uv - ivec2(tex_uv);
                 if (debug_mode == 0)
                     color = texture(tex, v_texcoord);
                 if (debug_mode == 1)
@@ -194,6 +195,7 @@ class PannableArea():
         self._attrib_location_tex = gl.glGetUniformLocation(self._shader_handle, "tex")
         self._attrib_location_xform = gl.glGetUniformLocation(self._shader_handle, "xform")
         self._attrib_location_canvas_size = gl.glGetUniformLocation(self._shader_handle, "canvas_size")
+        self._attrib_location_texture_size = gl.glGetUniformLocation(self._shader_handle, "texture_size")
         self._attrib_location_debug_mode = gl.glGetUniformLocation(self._shader_handle, "debug_mode")
 
         self._vao_handle = gl.glGenVertexArrays(1)  # bundles one or more VBOs
@@ -274,6 +276,7 @@ class PannableArea():
         gl.glUniform1i(self._attrib_location_tex, 0) # slot 0
         gl.glUniformMatrix3fv(self._attrib_location_xform, 1, gl.GL_FALSE, xform)
         gl.glUniform2i(self._attrib_location_canvas_size, self.canvas_w, self.canvas_h)
+        gl.glUniform2i(self._attrib_location_texture_size, self.tex_w, self.tex_h)
         assert self.debug_mode < self.num_debug_modes, 'Zero-indexed debug mode too large'
         gl.glUniform1i(self._attrib_location_debug_mode, self.debug_mode)
         gl.glBindVertexArray(self._vao_handle)
@@ -317,8 +320,8 @@ class PannableArea():
         Origin at (0, 0), ndc scale translation (edge to edge has magnitude 2.0f).
         """
         M = np.eye(3, dtype=np.float32)
-        M[0, 2] = (self.pan[0]+self.pan_delta[0])*2
-        M[1, 2] = (self.pan[1]+self.pan_delta[1])*2
+        M[0, 2] = (self.pan[0]+self.pan_delta[0])*2 * 0.95 # TODO: removeme
+        M[1, 2] = (self.pan[1]+self.pan_delta[1])*2 * 0.95
         M = np.diag((self.zoom, self.zoom, 1)) @ M # zoom relative to viewport center (post-translation)
         return M
     
