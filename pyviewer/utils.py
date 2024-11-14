@@ -40,6 +40,7 @@ class PannableArea():
         self.canvas_fb = None
         self.canvas_w = 0
         self.canvas_h = 0
+        self.canvas_interp = gl.GL_NEAREST
         
         # Size of image on screen (not texture dims)
         self.tex_h = 0
@@ -57,6 +58,20 @@ class PannableArea():
         ], dtype=np.float32).reshape(3, 3)
         self.uv_to_ndc = np.diag([1, -1, 1]) @ center
         self.ndc_to_uv = np.linalg.inv(self.uv_to_ndc)
+
+    def set_interp_linear(self):
+        self.canvas_interp = gl.GL_LINEAR
+        gl.glBindTexture(gl.GL_TEXTURE_2D, self.canvas_tex)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, self.canvas_interp)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, self.canvas_interp)
+        gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+
+    def set_interp_nearest(self):
+        self.canvas_interp = gl.GL_NEAREST
+        gl.glBindTexture(gl.GL_TEXTURE_2D, self.canvas_tex)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, self.canvas_interp)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, self.canvas_interp)
+        gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
     def resize_canvas(self, W, H):
         if self.canvas_w == W and self.canvas_h == H:
@@ -92,8 +107,8 @@ class PannableArea():
         # Canvas always rendered at native scale, interp. should be irrelevant
         self.canvas_tex = gl.glGenTextures(1)
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.canvas_tex)
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, self.canvas_interp)
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, self.canvas_interp)
         self.resize_canvas(canvas_width, canvas_height)
 
         # Framebuffer for offscreen rendering
@@ -441,7 +456,9 @@ class PannableArea():
         return (u, v)
     
     def reset_xform(self):
-        self.pan = self.pan_start = self.pan_delta = (0, 0)
+        # Quick hack to prevent sampling at texel edges
+        # Precents repeated artifacts when setting integer tex:canvas resolution ratio
+        self.pan = self.pan_start = self.pan_delta = (0.5/self.tex_w, 0.5/self.tex_h)
         self.zoom = 1.0
         self.is_panning = False
     

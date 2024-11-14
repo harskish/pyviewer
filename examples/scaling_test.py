@@ -61,7 +61,11 @@ conf_debu = {
     5: dict(auto_res=False, width=1222, height=1222, win_w=2060, win_h=1308, ui_scale=1.667, zoom=1.00000000, tx=0.00000000, ty=0.00000000), # one px wider, breaks
 }
 
-configs = conf_debu if socket.gethostname() == 'Debu' else []
+conf_mbp = {
+    0: dict(auto_res=False, width=1212, height=1212, win_w=1154, win_h=638, ui_scale=1.333, zoom=2.13756609, tx=0.00000000, ty=0.00000000),
+}
+
+configs = { 'Debu': conf_debu, 'Eriks-MacBook-Pro.local': conf_mbp }[socket.gethostname()]
 
 from pyviewer.toolbar_viewer import ToolbarViewer
 class Test(ToolbarViewer):
@@ -70,7 +74,8 @@ class Test(ToolbarViewer):
         self.width = 512
         self.height = 512
         self.pattern = PATTERNS.GRID
-        self.nearest = True
+        self.tex_nearest = True
+        self.cnv_nearest = True
         self.conf = 0
         self.load_config(configs[self.conf])
     
@@ -107,9 +112,12 @@ class Test(ToolbarViewer):
         self.pan_enabled = imgui.checkbox('Pan enabled', self.pan_enabled)[1]
         self.width = imgui.slider_int('Width', self.width, 4, 2048*4)[1]
         self.height = imgui.slider_int('Height', self.height, 4, 2048*4)[1]
-        ch, self.nearest = imgui.checkbox('Nearest interp.', self.nearest)
+        ch, self.tex_nearest = imgui.checkbox('Tex nearest', self.tex_nearest)
         if ch:
-            self.v.set_interp_nearest() if self.nearest else self.v.set_interp_linear()
+            self.v.set_interp_nearest() if self.tex_nearest else self.v.set_interp_linear()
+        ch, self.cnv_nearest = imgui.checkbox('Canvas nearest', self.cnv_nearest)
+        if ch:
+            self.pan_handler.set_interp_nearest() if self.cnv_nearest else self.pan_handler.set_interp_linear()
         self.pan_handler.zoom = imgui.slider_float('Zoom', self.pan_handler.zoom, 0, 10)[1]
         W, H = glfw.get_window_size(self.v._window)
         imgui.text(f'Window: {W}x{H}')
