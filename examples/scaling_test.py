@@ -53,12 +53,13 @@ class PATTERNS(Enum):
 
 # auto_res, width, height, window_w, window_h, ui_scale, zoom
 conf_debu = {
-    0: dict(auto_res=False, width=1212, height=1212, win_w=2590, win_h=1298, ui_scale=1.667, zoom=1.00000000, tx=0.0000000, ty=0.00000000), # even height, lower tri artifacts, depends on quad pos
-    1: dict(auto_res=False, width=1212, height=1212, win_w=1811, win_h=1298, ui_scale=1.667, zoom=1.00000000, tx=0.0000000, ty=0.00000000), # even square, works fine
-    2: dict(auto_res=False, width=1212, height=1212, win_w=1812, win_h=1299, ui_scale=1.667, zoom=0.99917561, tx=0.0000000, ty=0.00000000), # odd-even square, fine initially but breaks on pan
-    3: dict(auto_res=False, width=1213, height=1213, win_w=1812, win_h=1299, ui_scale=1.667, zoom=1.00000000, tx=0.0000000, ty=0.00000000), # odd-odd square, works fine
-    4: dict(auto_res=False, width=1222, height=1222, win_w=2059, win_h=1308, ui_scale=1.667, zoom=1.00000000, tx=0.00000000, ty=0.00000000), # works fine
-    5: dict(auto_res=False, width=1222, height=1222, win_w=2060, win_h=1308, ui_scale=1.667, zoom=1.00000000, tx=0.00000000, ty=0.00000000), # one px wider, breaks
+    0: dict(auto_res=False, width=1024, height=1024, win_w=1623, win_h=1110, ui_scale=1.667, zoom=1.00000000, tx=0.0000000, ty=0.00000000),
+    1: dict(auto_res=False, width=1212, height=1212, win_w=2590, win_h=1298, ui_scale=1.667, zoom=1.00000000, tx=0.0000000, ty=0.00000000), # even height, lower tri artifacts, depends on quad pos
+    2: dict(auto_res=False, width=1212, height=1212, win_w=1811, win_h=1298, ui_scale=1.667, zoom=1.00000000, tx=0.0000000, ty=0.00000000), # even square, works fine
+    3: dict(auto_res=False, width=1212, height=1212, win_w=1812, win_h=1299, ui_scale=1.667, zoom=0.99917561, tx=0.0000000, ty=0.00000000), # odd-even square, fine initially but breaks on pan
+    4: dict(auto_res=False, width=1213, height=1213, win_w=1812, win_h=1299, ui_scale=1.667, zoom=1.00000000, tx=0.0000000, ty=0.00000000), # odd-odd square, works fine
+    5: dict(auto_res=False, width=1222, height=1222, win_w=2059, win_h=1308, ui_scale=1.667, zoom=1.00000000, tx=0.00000000, ty=0.00000000), # works fine
+    6: dict(auto_res=False, width=1222, height=1222, win_w=2060, win_h=1308, ui_scale=1.667, zoom=1.00000000, tx=0.00000000, ty=0.00000000), # one px wider, breaks
 }
 
 conf_mbp = {
@@ -120,6 +121,7 @@ class Test(ToolbarViewer):
             self.pan_handler.set_interp_nearest() if self.cnv_nearest else self.pan_handler.set_interp_linear()
         self.pan_handler.zoom = imgui.slider_float('Zoom', self.pan_handler.zoom, 0, 10)[1]
         W, H = glfw.get_window_size(self.v._window)
+        self.pan_handler.debug_mode = imgui.slider_int('Debug mode', self.pan_handler.debug_mode, 0, self.pan_handler.num_debug_modes - 1)[1]
         imgui.text(f'Window: {W}x{H}')
         imgui.text(f'Canvas: {self.pan_handler.canvas_w}x{self.pan_handler.canvas_h}')
         imgui.text(f'Content: {self.content_size_px[0]}x{self.content_size_px[1]}')

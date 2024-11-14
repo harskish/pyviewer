@@ -41,6 +41,12 @@ class PannableArea():
         self.canvas_w = 0
         self.canvas_h = 0
         self.canvas_interp = gl.GL_NEAREST
+
+        # 0: standard
+        # 1: fractional tex coords debug
+        # 2: primitive id
+        self.debug_mode = 0
+        self.num_debug_modes = 3
         
         # Size of image on screen (not texture dims)
         self.tex_h = 0
@@ -129,13 +135,16 @@ class PannableArea():
             uniform mat3 xform;
             layout(location = 0) in vec2 position;
             layout(location = 1) in vec2 texcoord;
+            layout(location = 2) in vec3 color;
             out vec2 v_texcoord;
+            out vec3 v_color;
 
             void main()
             {
                 v_texcoord = texcoord; // texel coords untouched
+                v_color = color;
                 vec3 pos = xform * vec3(position, 1.0);
-                gl_Position = vec4(pos.xy, 0.0, 1.0); // quad itself transformed
+                gl_Position = color.x * 1e-5 + vec4(pos.xy, 0.0, 1.0); // quad itself transformed
             }
             """
         ))
@@ -144,12 +153,24 @@ class PannableArea():
             """
             #version 330
             uniform sampler2D tex;
+            uniform ivec2 canvas_size;
+            uniform int debug_mode;
             in vec2 v_texcoord;
+            in vec3 v_color;
             out vec4 color;
 
             void main()
             {
-                color = texture(tex, v_texcoord);
+                vec2 tex_uv = vec2(canvas_size) * v_texcoord;
+                vec2 frac = tex_uv - int(tex_uv);
+                if (debug_mode == 0)
+                    color = texture(tex, v_texcoord);
+                if (debug_mode == 1)
+                    color = vec4(frac.x, frac.y, 0.0, 1.0);
+                if (debug_mode == 2) {
+                    color = vec4(pow(v_color.x, 0.01), pow(v_color.y, 0.01), pow(v_color.z, 0.01), 1.0);
+                    //color = vec4(v_color.xyz, 1.0);
+                }
             }
             """
         ))
@@ -169,8 +190,11 @@ class PannableArea():
         
         self._attrib_location_pos = gl.glGetAttribLocation(self._shader_handle, "position")
         self._attrib_location_texcoord = gl.glGetAttribLocation(self._shader_handle, "texcoord")
+        self._attrib_location_color = gl.glGetAttribLocation(self._shader_handle, "color")
         self._attrib_location_tex = gl.glGetUniformLocation(self._shader_handle, "tex")
         self._attrib_location_xform = gl.glGetUniformLocation(self._shader_handle, "xform")
+        self._attrib_location_canvas_size = gl.glGetUniformLocation(self._shader_handle, "canvas_size")
+        self._attrib_location_debug_mode = gl.glGetUniformLocation(self._shader_handle, "debug_mode")
 
         self._vao_handle = gl.glGenVertexArrays(1)  # bundles one or more VBOs
         self._vbo_handle = gl.glGenBuffers(1)       # per-vertex information to be interpolated (bound as GL_ARRAY_BUFFER)
@@ -180,23 +204,27 @@ class PannableArea():
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._vbo_handle)
         gl.glEnableVertexAttribArray(self._attrib_location_pos)
         gl.glEnableVertexAttribArray(self._attrib_location_texcoord)
+        gl.glEnableVertexAttribArray(self._attrib_location_color)
 
         size_float = 4
-        vertex_size = 4 * size_float # 2*pos + 2*uv
-        gl.glVertexAttribPointer(self._attrib_location_pos, 2, gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(0*size_float))
-        gl.glVertexAttribPointer(self._attrib_location_texcoord, 2, gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(2*size_float))
+        sizes = (2, 2, 3) # pos.xy + uv.xy + color.rgb
+        offsets = (np.cumsum((0, *sizes)) * size_float).tolist()
+        vertex_size = offsets[-1]
+        gl.glVertexAttribPointer(self._attrib_location_pos,      sizes[0], gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(offsets[0]))
+        gl.glVertexAttribPointer(self._attrib_location_texcoord, sizes[1], gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(offsets[1]))
+        gl.glVertexAttribPointer(self._attrib_location_color,    sizes[2], gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(offsets[2]))
 
         # Two static tris that form a quad
         # OpenGL 3.3: just stick to glBufferData
         # OpenGL 4.5+: could use glNamedBufferData (dynamic) or glNamedBufferStorage (static)
 
-        # Vertex data:            strip         position           UV coord
-        vertices = np.array([  #  order    (-1, +1)   (+1, +1)   (0,0)  (1,0)
-            -1, +1, 0, 0,      #  1----3        +-------+           +----+
-            -1, -1, 0, 1,      #  |  / |        |  NDC  |           |    |
-            +1, +1, 1, 0,      #  | /  |        | SPACE |           |    |
-            +1, -1, 1, 1,      #  2----4        +-------+           +----+
-        ], dtype=np.float32)   #           (-1, -1)   (+1, -1)   (0,1)  (1,1)
+        # Vertex data:                     strip         position           UV coord          color     
+        vertices = np.array([           #  order    (-1, +1)   (+1, +1)   (0,0)  (1,0)   (1,0,0)  (0,0,0)
+            -1, +1, 0, 0, 1, 0, 0,      #  1----3        +-------+           +----+           +----+     
+            -1, -1, 0, 1, 0, 0, 0,      #  |  / |        |  NDC  |           |    |           |    |     
+            +1, +1, 1, 0, 0, 0, 0,      #  | /  |        | SPACE |           |    |           |    |     
+            +1, -1, 1, 1, 0, 1, 0,      #  2----4        +-------+           +----+           +----+     
+        ], dtype=np.float32)            #           (-1, -1)   (+1, -1)   (0,1)  (1,1)   (0,0,0)  (0,1,0)
 
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._vbo_handle)
         gl.glBufferData(gl.GL_ARRAY_BUFFER, 4 * vertex_size, vertices, gl.GL_STATIC_DRAW)
@@ -245,6 +273,9 @@ class PannableArea():
         gl.glUseProgram(self._shader_handle)
         gl.glUniform1i(self._attrib_location_tex, 0) # slot 0
         gl.glUniformMatrix3fv(self._attrib_location_xform, 1, gl.GL_FALSE, xform)
+        gl.glUniform2i(self._attrib_location_canvas_size, self.canvas_w, self.canvas_h)
+        assert self.debug_mode < self.num_debug_modes, 'Zero-indexed debug mode too large'
+        gl.glUniform1i(self._attrib_location_debug_mode, self.debug_mode)
         gl.glBindVertexArray(self._vao_handle)
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, self.canvas_fb)
 
@@ -456,9 +487,7 @@ class PannableArea():
         return (u, v)
     
     def reset_xform(self):
-        # Quick hack to prevent sampling at texel edges
-        # Precents repeated artifacts when setting integer tex:canvas resolution ratio
-        self.pan = self.pan_start = self.pan_delta = (0.5/self.tex_w, 0.5/self.tex_h)
+        self.pan = self.pan_start = self.pan_delta = (0, 0)
         self.zoom = 1.0
         self.is_panning = False
     
