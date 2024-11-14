@@ -162,10 +162,11 @@ class PannableArea():
 
             void main()
             {
-                vec2 tex_uv = vec2(texture_size) * v_texcoord;
+                vec2 dt = 0.5 * vec2((canvas_size.x + texture_size.x) % 2, (canvas_size.y + texture_size.y) % 2) / vec2(texture_size);
+                vec2 tex_uv = vec2(texture_size) * (v_texcoord + dt);
                 vec2 frac = tex_uv - ivec2(tex_uv);
                 if (debug_mode == 0)
-                    color = texture(tex, v_texcoord);
+                    color = texture(tex, (v_texcoord + dt));
                 if (debug_mode == 1)
                     color = vec4(frac.x, frac.y, 0.0, 1.0);
                 if (debug_mode == 2) {
@@ -320,8 +321,8 @@ class PannableArea():
         Origin at (0, 0), ndc scale translation (edge to edge has magnitude 2.0f).
         """
         M = np.eye(3, dtype=np.float32)
-        M[0, 2] = (self.pan[0]+self.pan_delta[0])*2 * 0.95 # TODO: removeme
-        M[1, 2] = (self.pan[1]+self.pan_delta[1])*2 * 0.95
+        M[0, 2] = (self.pan[0]+self.pan_delta[0])*2
+        M[1, 2] = (self.pan[1]+self.pan_delta[1])*2
         M = np.diag((self.zoom, self.zoom, 1)) @ M # zoom relative to viewport center (post-translation)
         return M
     
@@ -490,7 +491,13 @@ class PannableArea():
         return (u, v)
     
     def reset_xform(self):
-        self.pan = self.pan_start = self.pan_delta = (0, 0)
+        self.pan_start = self.pan_delta = (0, 0)
+        
+        # If different parities: need 0.5px offset
+        #dx = ((self.tex_w + self.canvas_w) % 2) * 0.5 / self.tex_w
+        #dy = ((self.tex_h + self.canvas_h) % 2) * 0.5 / self.tex_h
+        self.pan = (0, 0)
+
         self.zoom = 1.0
         self.is_panning = False
     
