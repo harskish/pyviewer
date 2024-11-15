@@ -162,7 +162,8 @@ class PannableArea():
 
             void main()
             {
-                vec2 dt = 0.5 * vec2((canvas_size.x + texture_size.x) % 2, (canvas_size.y + texture_size.y) % 2) / vec2(texture_size);
+                float irrat = 0.101001000100001000001; // prevent divisibility when at small integer scales + transl. at origin
+                vec2 dt = irrat / vec2(texture_size);
                 vec2 tex_uv = vec2(texture_size) * (v_texcoord + dt);
                 vec2 frac = tex_uv - ivec2(tex_uv);
                 if (debug_mode == 0)
