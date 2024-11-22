@@ -164,10 +164,11 @@ class PannableArea():
             {
                 float irrat = 0.101001000100001000001; // prevent divisibility when at small integer scales + transl. at origin
                 vec2 dt = irrat / vec2(texture_size);
-                vec2 tex_uv = vec2(texture_size) * (v_texcoord + dt);
+                vec2 uv = clamp(v_texcoord + dt, 0.0, 0.999);
+                vec2 tex_uv = vec2(texture_size) * uv;
                 vec2 frac = tex_uv - ivec2(tex_uv);
                 if (debug_mode == 0)
-                    color = texture(tex, (v_texcoord + dt));
+                    color = texture(tex, uv);
                 if (debug_mode == 1)
                     color = vec4(frac.x, frac.y, 0.0, 1.0);
                 if (debug_mode == 2) {
