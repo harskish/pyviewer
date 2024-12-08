@@ -11,6 +11,11 @@ class Param:
         self.default = default_val
         self.value = default_val
         self.tooltip = tooltip
+
+    def handle_reset(self):
+        # Right click: reset state
+        if imgui.is_item_hovered() and imgui.is_mouse_clicked(button=1):
+            self.reset()
     
     def draw_tooltip(self):
         if self.tooltip and imgui.is_item_hovered():
@@ -23,7 +28,9 @@ class Param:
         self.value = self.default
 
     def draw(self):
-        _, self.value = self.draw_widget()
+        with imgui.begin_group():
+            _, self.value = self.draw_widget()
+        self.handle_reset()
         self.draw_tooltip()
 
 class _RangeParam(Param):
