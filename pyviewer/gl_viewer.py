@@ -310,18 +310,51 @@ class viewer:
         glfw.window_hint(glfw.VISIBLE, not hidden)
         
         # MacOS, WSL require forward-compatible core profile
-        if 'darwin' in platform or 'microsoft-standard' in uname().release:
+        is_wsl = 'microsoft-standard' in uname().release
+        if 'darwin' in platform or is_wsl:
             glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
             glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
             glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
             glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, gl.GL_TRUE)
 
-        if self.fullscreen:
-            monitor = glfw.get_monitors()[0]
-            params = glfw.get_video_mode(monitor)
-            self._window = glfw.create_window(params.size.width, params.size.height, title, monitor, None)
-        else:
-            self._window = glfw.create_window(self._width, self._height, title, None, None)
+        if is_wsl:
+            # https://github.com/pyimgui/pyimgui/issues/318
+            # https://github.com/pygame/pygame/issues/3110
+            from OpenGL import contextdata, platform as gl_platform
+            print('Applying WSL PyOpenGL monkey patch (only tested on 3.1.7)')
+            def fixed( context = None ):
+                if context is None:
+                    context = gl_platform.GetCurrentContext()
+                    if context == None:
+                        from OpenGL import error
+                        raise error.Error(
+                            """Attempt to retrieve context when no valid context"""
+                        )
+                return context
+            contextdata.getContext = fixed
+        
+        from py.io import StdCaptureFD # type: ignore
+        capture = StdCaptureFD(out=False, in_=False)
+        try:
+            if self.fullscreen:
+                monitor = glfw.get_monitors()[0]
+                params = glfw.get_video_mode(monitor)
+                self._window = glfw.create_window(params.size.width, params.size.height, title, monitor, None)
+            else:
+                self._window = glfw.create_window(self._width, self._height, title, None, None)
+        except glfw.GLFWError as e:
+            stdout, stderr = capture.reset()
+            print(stdout)
+            print(stderr)
+            print(f'Window creation failed:\n{e}')
+            if 'MESA-LOADER' in stderr and is_wsl:
+                print('MESA loader errors on WSL!')
+                print('Make sure required symlink exists: `sudo ln -s /usr/lib/x86_64-linux-gnu/dri /usr/lib/dri`')
+                print('If MESA complains about GLIBCXX, then also run `conda install -c conda-forge gcc=12.1.0`')
+            import sys
+            sys.exit(1)
+        else: # try-except else branch: no error
+            capture.reset()
         
         if not self._window:
             raise RuntimeError('Could not create window')

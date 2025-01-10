@@ -23,7 +23,7 @@ if 'develop' in sys.argv:
 # or with: `rm -r build\ && pip wheel . && unzip -l pyviewer-*.whl`
 # (not same environment, but good first step)
 setup(name='pyviewer',
-    version='1.6.0',
+    version='1.6.1',
     description='Interactyive python viewers',
     author='Erik Härkönen',
     author_email='erik.harkonen@hotmail.com',
@@ -37,6 +37,7 @@ setup(name='pyviewer',
         'pyplotgui',  # custom imgui+implot package
         'setuptools<=72.1.0', # github.com/pytorch/pytorch/issues/136541
         'light-process==0.0.7',
+        'py==1.11.0', # for capturing c++ extension stdout/stderr, part of pytest
         'ninja', # for custom OP
     ],
     include_package_data=True,
