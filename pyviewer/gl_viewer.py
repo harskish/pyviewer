@@ -286,8 +286,8 @@ class viewer:
         
         try:
             with open(self._inifile, 'r') as file:
-                self._width, self._height = [int(i) for i in file.readline().split()]
-                self.window_pos = [int(i) for i in file.readline().split()]
+                self._width, self._height = [max(int(i), 1) for i in file.readline().split()]
+                self.window_pos = [max(int(i), 0) for i in file.readline().split()]
                 start_maximized = int(file.readline().rstrip())
                 self.ui_scale = float(file.readline().rstrip())
                 self.fullscreen = bool(int(file.readline().rstrip()))

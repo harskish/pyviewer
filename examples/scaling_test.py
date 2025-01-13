@@ -8,6 +8,8 @@ from pyviewer.utils import combo_box_vals
 from functools import lru_cache
 from io import BytesIO
 from PIL import Image
+import socket
+import glfw
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.patches import Wedge
@@ -43,21 +45,40 @@ def build_siemens_star(origin=(0, 0), radius=1, n=100, DPI=400):
 
     return img_arr
 
-siv.init('Async viewer', hidden=False)
+#siv.init('Async viewer', hidden=False)
 
 class PATTERNS(Enum):
     GRID = 'Grid'
     STAR = 'Siemens star'
 
+# auto_res, width, height, window_w, window_h, ui_scale, zoom
+conf_debu = {
+    0: dict(auto_res=False, width=1024, height=1024, win_w=1623, win_h=1110, ui_scale=1.667, zoom=1.00000000, tx=0.0000000, ty=0.00000000),
+    1: dict(auto_res=False, width=1212, height=1212, win_w=2590, win_h=1298, ui_scale=1.667, zoom=1.00000000, tx=0.0000000, ty=0.00000000), # even height, lower tri artifacts, depends on quad pos
+    2: dict(auto_res=False, width=1212, height=1212, win_w=1811, win_h=1298, ui_scale=1.667, zoom=1.00000000, tx=0.0000000, ty=0.00000000), # even square, works fine
+    3: dict(auto_res=False, width=1212, height=1212, win_w=1812, win_h=1299, ui_scale=1.667, zoom=0.99917561, tx=0.0000000, ty=0.00000000), # odd-even square, fine initially but breaks on pan
+    4: dict(auto_res=False, width=1213, height=1213, win_w=1812, win_h=1299, ui_scale=1.667, zoom=1.00000000, tx=0.0000000, ty=0.00000000), # odd-odd square, works fine
+    5: dict(auto_res=False, width=1222, height=1222, win_w=2059, win_h=1308, ui_scale=1.667, zoom=1.00000000, tx=0.00000000, ty=0.00000000), # works fine
+    6: dict(auto_res=False, width=1222, height=1222, win_w=2060, win_h=1308, ui_scale=1.667, zoom=1.00000000, tx=0.00000000, ty=0.00000000), # one px wider, breaks
+}
+
+conf_mbp = {
+    0: dict(auto_res=False, width=1212, height=1212, win_w=1154, win_h=638, ui_scale=1.333, zoom=2.13756609, tx=0.00000000, ty=0.00000000),
+}
+
+configs = { 'Debu': conf_debu, 'Eriks-MacBook-Pro.local': conf_mbp }[socket.gethostname()]
+
 from pyviewer.toolbar_viewer import ToolbarViewer
 class Test(ToolbarViewer):
     def setup_state(self):
-        self.auto_res = True  # res based on window size
+        self.auto_res = False  # res based on window size
         self.width = 512
         self.height = 512
-        self.pattern = PATTERNS.STAR
-        self.nearest = True
-        self.pan_handler.zoom = np.e
+        self.pattern = PATTERNS.GRID
+        self.tex_nearest = True
+        self.cnv_nearest = True
+        self.conf = 0
+        self.load_config(configs[self.conf])
     
     def compute(self):
         if self.auto_res:
@@ -74,21 +95,47 @@ class Test(ToolbarViewer):
             case _:
                 img[:, :, :] = np.array([255, 255, 0])
 
-        siv.draw(img_hwc=img)
+        #siv.draw(img_hwc=img)
         return img
     
+    def load_config(self, conf: dict):
+        self.auto_res = conf['auto_res']
+        self.width = conf['width']
+        self.height = conf['height']
+        glfw.set_window_size(self.v._window, conf['win_w'], conf['win_h'])
+        self.v.set_ui_scale(conf['ui_scale'])
+        self.pan_handler.zoom = conf['zoom']
+        self.pan_handler.pan = (conf['tx'], conf['ty'])
+
     def draw_toolbar(self):
         self.pattern = combo_box_vals('Pattern', PATTERNS, self.pattern, to_str=lambda p: p.value)[1][0]
         self.auto_res = imgui.checkbox('Auto-res', self.auto_res)[1]
-        self.pan_enabled = imgui.checkbox('Use shader', self.pan_enabled)[1]
+        self.pan_enabled = imgui.checkbox('Pan enabled', self.pan_enabled)[1]
         self.width = imgui.slider_int('Width', self.width, 4, 2048*4)[1]
         self.height = imgui.slider_int('Height', self.height, 4, 2048*4)[1]
-        ch, self.nearest = imgui.checkbox('Nearest interp.', self.nearest)
+        ch, self.tex_nearest = imgui.checkbox('Tex nearest', self.tex_nearest)
         if ch:
-            self.v.set_interp_nearest() if self.nearest else self.v.set_interp_linear()
+            self.v.set_interp_nearest() if self.tex_nearest else self.v.set_interp_linear()
+        ch, self.cnv_nearest = imgui.checkbox('Canvas nearest', self.cnv_nearest)
+        if ch:
+            self.pan_handler.set_interp_nearest() if self.cnv_nearest else self.pan_handler.set_interp_linear()
         self.pan_handler.zoom = imgui.slider_float('Zoom', self.pan_handler.zoom, 0, 10)[1]
+        W, H = glfw.get_window_size(self.v._window)
+        self.pan_handler.debug_mode = imgui.slider_int('Debug mode', self.pan_handler.debug_mode, 0, self.pan_handler.num_debug_modes - 1)[1]
+        imgui.text(f'Window: {W}x{H}')
+        imgui.text(f'Canvas: {self.pan_handler.canvas_w}x{self.pan_handler.canvas_h}')
+        imgui.text(f'Content: {self.content_size_px[0]}x{self.content_size_px[1]}')
+        imgui.text(f'Texture: {self.pan_handler.tex_w}x{self.pan_handler.tex_h}')
+        imgui.text(f'Pan: ({self.pan_handler.pan[0]:.3f}, {self.pan_handler.pan[1]:.3f})')
+        if imgui.button('Print'):
+            print('{}: dict(auto_res=False, width={}, height={}, win_w={}, win_h={}, ui_scale={:.3f}, zoom={:.8f}, tx={:.8f}, ty={:.8f}),'.format(
+                len(configs), self.width, self.height, W, H, self.ui_scale, self.pan_handler.zoom, *self.pan_handler.pan
+            ))
 
+        ch, self.conf = imgui.slider_int('Config', self.conf, 0, len(configs) - 1)
+        if ch:
+            self.load_config(configs[self.conf])
 
 _ = Test('test_viewer')
-siv.inst.close()
+#siv.inst.close()
 print('Done')

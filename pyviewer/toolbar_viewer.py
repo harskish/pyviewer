@@ -40,7 +40,7 @@ class ToolbarViewer:
         self.output_pos_tl = np.array([self.toolbar_width + px, self.menu_bar_height + py], dtype=np.float32)
         self.output_pos_br = np.array([W - px, H - self.pad_bottom - py], dtype=np.float32)
         # Size in pixels of drawn imgui.image, (W, H)
-        self.content_size_px = (1, 1)
+        self.content_size_px = (1, 1) # size of centered content (image)
         self.ui_locked = True
         self.state = EasyDict()
 
@@ -146,7 +146,7 @@ class ToolbarViewer:
         # Bottom area for integer scaling buttons taken into account
         aspect = self.img_shape[2] / self.img_shape[1]
         out_width = min(cW, aspect*(cH - BOTTOM_PAD))
-        self.content_size_px = (int(out_width), int(out_width / aspect))
+        self.content_size_px = (int(out_width), int(out_width / aspect)) # size of centered content (image)
 
         # Draw UI elements before image
         self.draw_pre()
