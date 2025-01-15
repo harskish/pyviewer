@@ -162,12 +162,7 @@ class PannableArea():
 
             void main()
             {
-                // Prevent divisibility when at small integer scales + transl. at origin
-                // Suboptimal, but better than artifacting at integer scales
-                float irrat = 0.101001000100001000001;
-
-                vec2 dt = irrat / vec2(texture_size);
-                vec2 uv = clamp(v_texcoord + dt, 0.0, 0.999);
+                vec2 uv = v_texcoord;
                 vec2 tex_uv = vec2(texture_size) * uv;
                 vec2 frac = tex_uv - ivec2(tex_uv);
                 if (debug_mode == 0)
