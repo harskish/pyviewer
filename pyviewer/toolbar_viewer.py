@@ -37,8 +37,11 @@ class ToolbarViewer:
         # relative to glfw window top-left.
         # Initial value not exactly correct but good initial guess
         px, py = np.array(imgui.get_style().window_padding)
+        
+        # Output_pos is really "canvas_pos"
         self.output_pos_tl = np.array([self.toolbar_width + px, self.menu_bar_height + py], dtype=np.float32)
         self.output_pos_br = np.array([W - px, H - self.pad_bottom - py], dtype=np.float32)
+        
         # Size in pixels of drawn imgui.image, (W, H)
         self.content_size_px = (1, 1) # size of centered content (image)
         self.ui_locked = True
@@ -77,7 +80,7 @@ class ToolbarViewer:
     # Extra user content below image
     @property
     def pad_bottom(self):
-        return max(self._user_pad_bottom, int(round(20 * self.v.ui_scale)) + 6)
+        return max(self._user_pad_bottom, int(round(24 * self.v.ui_scale)) + 6)
 
     @property
     def toolbar_width(self):
@@ -129,14 +132,14 @@ class ToolbarViewer:
     def _draw_output(self):
         v = self.v
 
+        BOTTOM_PAD = self.pad_bottom
         W, H = glfw.get_window_size(v._window)
-        imgui.set_next_window_size(W - self.toolbar_width, H - self.menu_bar_height)
+        imgui.set_next_window_size(W - self.toolbar_width, H - self.menu_bar_height - BOTTOM_PAD)
         imgui.set_next_window_position(self.toolbar_width, self.menu_bar_height)
 
         s = v.ui_scale
 
         begin_inline('Output', inputs=False)
-        BOTTOM_PAD = self.pad_bottom
         
         # Calculate size of current (virtual) imgui.window
         rmin, rmax = imgui.get_window_content_region_min(), imgui.get_window_content_region_max()
@@ -145,25 +148,44 @@ class ToolbarViewer:
         # Compute size of image that fills smaller dimension
         # Bottom area for integer scaling buttons taken into account
         aspect = self.img_shape[2] / self.img_shape[1]
-        out_width = min(cW, aspect*(cH - BOTTOM_PAD))
+        out_width = min(cW, aspect*cH)
         self.content_size_px = (int(out_width), int(out_width / aspect)) # size of centered content (image)
 
         # Draw UI elements before image
+        # TODO: sizes won't match if using together with image (not meant to be used simultaneously!)
+        # TODO: not getting inputs currently
         self.draw_pre()
         
         # Create imgui.image from provided data
         tex_in = v._images.get(self.output_key)
         if tex_in:
-            canvas_size = (cW, cH - BOTTOM_PAD)
+            canvas_size = (cW, cH)
             tex = self.pan_handler.draw_to_canvas(tex_in.tex, tex_in.shape[1], tex_in.shape[0], *canvas_size, self.pan_enabled)
             imgui.image(tex, *canvas_size)
 
-        # Imgui.image drawn above
+        # Imgui.image, i.e. (pannable) canvas, drawn above
         # => get position where it was drawn
+        # => one dimension matches image content, centered along the other
         self.output_pos_tl[:] = imgui.get_item_rect_min()
         self.output_pos_br[:] = imgui.get_item_rect_max()
-        #imgui.get_window_draw_list().add_circle(*self.output_pos_tl, 3.0, imgui.get_color_u32_rgba(1,0,1,1), thickness=2) # Tested 3.10.2024, position matches
+        
+        # Size check: tested 15.1.2025, matches
+        #dims = self.output_pos_br - self.output_pos_tl
+        #if all(dims > 0) and tuple(dims) != (cW, cH):
+        #    print('output_pos_{tl,br} mismatch')
+        
+        #imgui.get_window_draw_list().add_circle(*self.output_pos_tl, 3.0, imgui.get_color_u32_rgba(1,0,1,1), thickness=2) # Tested 15.1.2025, position matches
+        #imgui.get_window_draw_list().add_circle(*self.output_pos_br, 3.0, imgui.get_color_u32_rgba(0,1,1,1), thickness=2) # Tested 15.1.2025, position matches
 
+        self.draw_overlays(imgui.get_window_draw_list())
+
+        imgui.end()
+
+        # New window with inputs for bottom elements
+        imgui.set_next_window_size(W - self.toolbar_width, BOTTOM_PAD)
+        imgui.set_next_window_position(self.toolbar_width, H - BOTTOM_PAD)
+        begin_inline('Output below')
+        
         # Equal spacing
         imgui.columns(2, 'outputBottom', border=False)
 
@@ -171,33 +193,30 @@ class ToolbarViewer:
         self.draw_output_extra()
         imgui.next_column()
 
-        # Scaling buttons, right-aligned within child
-        imgui.begin_child('sizeButtons', width=0, height=0, border=False)
-        child_w = imgui.get_content_region_available_width()
+        # Scaling buttons
+        button_region_width = imgui.get_content_region_available_width()
 
-        sizes = ['0.5', '1', '2', '3', '4']    
+        sizes = ['0.5', '1', '2', '3', '4', '6']
         button_W = 40 * s
-        pad_left = max(0, child_w - (button_W * len(sizes)))
+        pad_left = max(0, button_region_width - (button_W * len(sizes)))
 
         for i, s in enumerate(sizes):
             imgui.same_line(position=pad_left+i*button_W)
-            if imgui.button(f'{s}x', width=button_W-4): # tiny pad
+            if imgui.button(f'{s}x', width=button_W-3): # tiny pad
                 if not self.pan_enabled:
                     # Resize window
                     resW = int(self.img_shape[2] * float(s))
                     resH = int(self.img_shape[1] * float(s))
                     glfw.set_window_size(v._window,
-                        width=resW+W-cW, height=resH+H-cH+BOTTOM_PAD)
+                        width=resW+W-cW, height=resH+H-cH+BOTTOM_PAD) # TODO probably wrong
                 else:
                     # Set zoom level
                     sw = self.pan_handler.canvas_w / self.pan_handler.tex_w
                     sh = self.pan_handler.canvas_h / self.pan_handler.tex_h
                     scale = float(s) / min(sw, sh)
                     self.pan_handler.zoom = scale
-        imgui.end_child()
 
         imgui.columns(1)
-        self.draw_overlays(imgui.get_window_draw_list())
 
         imgui.end()
 
