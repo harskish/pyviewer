@@ -135,7 +135,7 @@ class ToolbarViewer:
 
         s = v.ui_scale
 
-        begin_inline('Output')
+        begin_inline('Output', inputs=False)
         BOTTOM_PAD = self.pad_bottom
         
         # Calculate size of current (virtual) imgui.window

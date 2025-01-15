@@ -502,6 +502,10 @@ class PannableArea():
     
     # Handle pan action
     def handle_pan(self):
+        # Do nothing unless in foreground
+        if imgui.get_io().want_capture_mouse:
+            return
+        
         if imgui.is_mouse_clicked(0) and self.mouse_hovers_content():
             u, v = self.get_hovered_uv_canvas()
             self.pan_start = (u, 1 - v) # convert to y-up
@@ -536,7 +540,7 @@ class PannableArea():
         return (0 <= x <= 1) and (0 <= y <= 1)
     
     def mouse_wheel_callback(self, window, x, y) -> None:
-        if not (self.mouse_hovers_content() and self.zoom_enabled):
+        if imgui.get_io().want_capture_mouse or not (self.mouse_hovers_content() and self.zoom_enabled):
             return self.prev_cbk(window, x, y) # scroll imgui lists etc.
         
         # MacOS trackpad needs separate speed
@@ -602,17 +606,21 @@ def imgui_item_width(size):
     imgui.pop_item_width()
 
 # Full screen imgui window
-def begin_inline(name):
+def begin_inline(name, inputs=True):
+    flags = 0
+    flags |= imgui.WINDOW_NO_TITLE_BAR
+    flags |= imgui.WINDOW_NO_RESIZE
+    flags |= imgui.WINDOW_NO_MOVE
+    flags |= imgui.WINDOW_NO_COLLAPSE
+    flags |= imgui.WINDOW_NO_SCROLLBAR
+    flags |= imgui.WINDOW_NO_SAVED_SETTINGS
+    
+    # No mouse interaction, but io.want_capture_mouse won't trigger
+    if not inputs:
+        flags |= imgui.WINDOW_NO_INPUTS
+    
     with imgui.styled(imgui.STYLE_WINDOW_ROUNDING, 0):
-        imgui.begin(name,
-            flags = \
-                imgui.WINDOW_NO_TITLE_BAR |
-                imgui.WINDOW_NO_RESIZE |
-                imgui.WINDOW_NO_MOVE |
-                imgui.WINDOW_NO_COLLAPSE |
-                imgui.WINDOW_NO_SCROLLBAR |
-                imgui.WINDOW_NO_SAVED_SETTINGS
-        )
+        imgui.begin(name, flags=flags)
 
 # Recursive getattr
 def rgetattr(obj, key, default=None):
