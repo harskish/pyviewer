@@ -29,7 +29,10 @@ class PannableArea():
         self.pan_enabled = True
         self.zoom_enabled = True
         # Pan magnitude: image edges at +-0.5 at unit scale
-        self.pan = (0, 0) # in canvas UV scale
+        # When setting integer-scale zooms from ui buttons: all samples might end up perfectly at texel edges
+        # => initialize translation with small irrational number as a simple (albeit imperfect) fix
+        self.irrat = np.power(np.pi, -10) # pi^(-n) irrational for all natural numbers n
+        self.pan = (self.irrat, self.irrat) # in canvas UV scale
         self.pan_delta = (0, 0)
         self.pan_start = (0, 0)
         self.zoom: float = 1.0
@@ -491,7 +494,8 @@ class PannableArea():
         return (u, v)
     
     def reset_xform(self):
-        self.pan = self.pan_start = self.pan_delta = (0, 0)
+        self.pan_start = self.pan_delta = (0, 0)
+        self.pan = (self.irrat, self.irrat)
         self.zoom = 1.0
         self.is_panning = False
     
