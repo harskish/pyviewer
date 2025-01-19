@@ -358,6 +358,8 @@ def show_window():
     elif not inst.started.value:
         inst.restart()
         inst.paused.value = False
+    elif inst.hidden:
+        inst.show(sync=True)
 
 def draw(*, img_hwc=None, img_chw=None, ignore_pause=False):
     init('SIV') # no-op if init already performed
