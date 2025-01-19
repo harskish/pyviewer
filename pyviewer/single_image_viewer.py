@@ -256,7 +256,7 @@ class SingleImageViewer:
 
         imgui.set_next_window_size(*glfw.get_window_size(v._window))
         imgui.set_next_window_position(0, 0)
-        begin_inline('Output')
+        begin_inline('Output', inputs=False)
         
         viz_mode = VizMode(self.viz_mode.value)
 
