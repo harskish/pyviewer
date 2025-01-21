@@ -66,17 +66,20 @@ class PTExtMapper:
     def upload(self, ptr: int, W: int, H: int, N: int) -> None:
         pt_plugin.upload(ptr, W, H, N, self.resource) # map, copy, unmap
 
+MIPMAP_MODES = [gl.GL_NEAREST_MIPMAP_NEAREST, gl.GL_LINEAR_MIPMAP_NEAREST, gl.GL_NEAREST_MIPMAP_LINEAR, gl.GL_LINEAR_MIPMAP_LINEAR]
 class _texture:
     '''
     This class maps torch tensors to gl textures without a CPU roundtrip.
     '''
-    def __init__(self, min_mag_filter=gl.GL_LINEAR):
+    def __init__(self, min_filter=gl.GL_LINEAR, mag_filter=gl.GL_LINEAR):
         # Can be shared between py and c++
         self.tex = gl.glGenTextures(1)
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex) # need to bind to modify
         # sets repeat and filtering parameters; change the second value of any tuple to change the value
-        for params in ((gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT), (gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT), (gl.GL_TEXTURE_MIN_FILTER, min_mag_filter), (gl.GL_TEXTURE_MAG_FILTER, min_mag_filter)):
+        for params in ((gl.GL_TEXTURE_WRAP_S, gl.GL_MIRRORED_REPEAT), (gl.GL_TEXTURE_WRAP_T, gl.GL_MIRRORED_REPEAT), (gl.GL_TEXTURE_MIN_FILTER, min_filter), (gl.GL_TEXTURE_MAG_FILTER, mag_filter)):
             gl.glTexParameteri(gl.GL_TEXTURE_2D, *params)
+        self.min_filter = min_filter
+        self.mag_filter = mag_filter
         self.mapper = None  # pycuda mapper or torch extension cudaGraphicsResource_t
         self.is_fp = True
         self.shape = [0,0]
@@ -87,10 +90,24 @@ class _texture:
         if self.mapper is not None:
             self.mapper.unregister()
 
+    @property
+    def needs_mipmap(self):
+        return self.min_filter in MIPMAP_MODES or self.mag_filter in MIPMAP_MODES
+
     def set_interp(self, key, val):
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
         gl.glTexParameteri(gl.GL_TEXTURE_2D, key, val)
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+        if key == gl.GL_TEXTURE_MIN_FILTER:
+            self.min_filter = val
+        if key == gl.GL_TEXTURE_MAG_FILTER:
+            self.mag_filter = val
+
+    def generate_mipmaps(self):
+        prev = gl.glGetInteger(gl.GL_TEXTURE_BINDING_2D)
+        gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
+        gl.glGenerateMipmap(gl.GL_TEXTURE_2D)
+        gl.glBindTexture(gl.GL_TEXTURE_2D, prev)
 
     def upload_np(self, image):
         shape = image.shape
@@ -135,6 +152,8 @@ class _texture:
                 incoming_dtype,     # GLenum type
                 image,              # const void * pixels
             )
+        if self.needs_mipmap:
+            self.generate_mipmaps()
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
     def upload_torch(self, img):
@@ -154,6 +173,8 @@ class _texture:
 
         img = img.contiguous()
         self.upload_ptr(img.data_ptr(), img.shape, img.dtype.is_floating_point)
+        if self.needs_mipmap:
+            self.generate_mipmaps()
 
     # Copy from cuda pointer
     def upload_ptr(self, ptr, shape, is_fp32):
@@ -271,7 +292,8 @@ class viewer:
 
         self._images = {}
         self._editables = {}
-        self.tex_interp_mode = gl.GL_LINEAR
+        self.tex_interp_mode_min = gl.GL_LINEAR
+        self.tex_interp_mode_mag = gl.GL_LINEAR
         self.default_font_size = 15
         self.renderer = None
 
@@ -443,19 +465,21 @@ class viewer:
         self.set_font_size(k*scale)
         self.ui_scale = self.font_size / k
 
-    def set_interp_linear(self, update_existing=True):
+    def set_interp(self, min, mag, update_existing=True):
+        self.tex_interp_mode_min = min
+        self.tex_interp_mode_mag = mag
         if update_existing:
             for tex in self._images.values():
-                tex.set_interp(gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
-                tex.set_interp(gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
-        self.tex_interp_mode = gl.GL_LINEAR
+                tex.set_interp(gl.GL_TEXTURE_MIN_FILTER, self.tex_interp_mode_min)
+                tex.set_interp(gl.GL_TEXTURE_MAG_FILTER, self.tex_interp_mode_mag)
+                if tex.needs_mipmap:
+                    tex.generate_mipmaps()
+    
+    def set_interp_linear(self, update_existing=True):
+        self.set_interp(gl.GL_LINEAR, gl.GL_LINEAR, update_existing)
 
     def set_interp_nearest(self, update_existing=True):
-        if update_existing:
-            for tex in self._images.values():
-                tex.set_interp(gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
-                tex.set_interp(gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
-        self.tex_interp_mode = gl.GL_NEAREST
+        self.set_interp(gl.GL_NEAREST, gl.GL_NEAREST, update_existing)
 
     def editable(self, name, **kwargs):
         if name not in self._editables:
@@ -676,7 +700,7 @@ class viewer:
             if not self.quit:
                 self.push_context() # set the context for whichever thread wants to upload
                 if name not in self._images:
-                    self._images[name] = _texture(self.tex_interp_mode)
+                    self._images[name] = _texture(self.tex_interp_mode_min, self.tex_interp_mode_mag)
                 self._images[name].upload_torch(tensor)
                 self.pop_context()
 
@@ -691,6 +715,6 @@ class viewer:
             if not self.quit:
                 self.push_context() # set the context for whichever thread wants to upload
                 if name not in self._images:
-                    self._images[name] = _texture(self.tex_interp_mode)
+                    self._images[name] = _texture(self.tex_interp_mode_min, self.tex_interp_mode_mag)
                 self._images[name].upload_np(data)
                 self.pop_context()
