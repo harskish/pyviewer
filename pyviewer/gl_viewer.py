@@ -181,8 +181,9 @@ class _texture:
         assert has_pycuda or pt_plugin is not None, 'PyCUDA-GL or PT plugin needed for pointer upload'
         has_alpha = shape[-1] == 4
 
-        # reallocate if shape changed or data type changed from np to torch
-        if shape[0] != self.shape[0] or shape[1] != self.shape[1] or self.is_fp != is_fp32 or self.mapper is None:
+        # Reallocate if shape changed or data type changed from np to torch
+        # Must also reallocate before mipmap (re)generation (https://stackoverflow.com/a/20359917)
+        if self.needs_mipmap or shape[0] != self.shape[0] or shape[1] != self.shape[1] or self.is_fp != is_fp32 or self.mapper is None:
             self.shape = shape
             self.is_fp = is_fp32
             if self.mapper is not None:
