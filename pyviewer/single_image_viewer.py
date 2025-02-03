@@ -64,6 +64,7 @@ class SingleImageViewer:
         # Plotting mode: max size 1M floats per axis
         self.max_size_plot = 1_000_000
         self.shared_buffer_plot = mp.Array(ctypes.c_float, 2*self.max_size_plot)
+        self.plot_marker_size = mp.Value('f', 2.0)
         
         # Non-scalar type: not updated in single transaction
         # Protected by shared_buffer's lock
@@ -220,6 +221,10 @@ class SingleImageViewer:
         if has_torch and torch.is_tensor(y):
             y = y.detach().cpu().numpy()
         
+        # Convert lists to np arrays
+        x = np.asarray(x) if x is not None else None
+        y = np.asarray(y) if y is not None else None
+        
         # Flatten, fill missing data with linspace
         x = x.reshape(-1) if x is not None else np.linspace(0, 1, len(y.reshape(-1)))
         y = y.reshape(-1) if y is not None else np.linspace(0, 1, len(x.reshape(-1)))
@@ -295,7 +300,7 @@ class SingleImageViewer:
             if viz_mode in [VizMode.PLOT_LINE, VizMode.PLOT_LINE_DOT]:
                 implot.plot_line2('', arr_x, arr_y, len(x))
             if viz_mode in [VizMode.PLOT_DOT, VizMode.PLOT_LINE_DOT]:
-                implot.set_next_marker_style(size=2)
+                implot.set_next_marker_style(size=self.plot_marker_size.value)
                 implot.plot_scatter2('', arr_x, arr_y, len(x))
             implot.end_plot()
 
@@ -372,3 +377,8 @@ def grid(*, img_nchw=None, ignore_pause=False):
 def plot(y, *, x=None, ignore_pause=False):
     init('SIV') # no-op if init already performed
     inst.plot(x=x, y=y, ignore_pause=ignore_pause)
+
+def set_marker_size(size):
+    "Set implot marker size"
+    init('SIV', sync=False)
+    inst.plot_marker_size.value = size
