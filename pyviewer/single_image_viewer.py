@@ -380,5 +380,5 @@ def plot(y, *, x=None, ignore_pause=False):
 
 def set_marker_size(size):
     "Set implot marker size"
-    init('SIV', sync=False)
+    init('SIV')
     inst.plot_marker_size.value = size

@@ -128,6 +128,7 @@ class ToolbarViewer:
                 self.v.upload_image(self.output_key, img)
             else:
                 time.sleep(1/60)
+        self.shutdown()
 
     def _draw_output(self):
         v = self.v
@@ -338,6 +339,10 @@ class ToolbarViewer:
         pass
 
     def scroll_callback(self, xoffset: float, yoffset: float) -> bool:
+        pass
+
+    # Cleanup before exit (Esc or window close)
+    def shutdown(self):
         pass
 
 #----------------------------------------------
