@@ -11,6 +11,7 @@ class Param:
         self.default = default_val
         self.value = default_val
         self.tooltip = tooltip
+        self.active = True # set to false to skip drawing and resetting
 
     def handle_reset(self):
         # Right click: reset state
@@ -183,12 +184,12 @@ class ParamContainer:
     
 def reset_container(cont: ParamContainer):
     for _, p in cont:
-        if isinstance(p, Param):
+        if isinstance(p, Param) and p.active:
             p.reset()
 
 def draw_container(cont: ParamContainer, reset_button=False):
     for _, p in cont:
-        if isinstance(p, Param):
+        if isinstance(p, Param) and p.active:
             p.draw()
     
     # Draw below widgets
