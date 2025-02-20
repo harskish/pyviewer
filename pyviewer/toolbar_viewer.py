@@ -7,6 +7,7 @@ import numpy as np
 import time
 from pathlib import Path
 from functools import partial
+from threading import get_native_id
 
 from . import gl_viewer
 from .utils import imgui_item_width, begin_inline, PannableArea
@@ -28,6 +29,11 @@ class ToolbarViewer:
         self._user_pad_bottom = pad_bottom
         self.v = gl_viewer.viewer(name, hidden=hidden or batch_mode, swap_interval=1)
         self.menu_bar_height = self.v.font_size + 2*imgui.get_style().frame_padding.y
+        
+        # Window title can be used to show progress etc.
+        self._orig_window_title = name
+        self._window_title = name # updated from compute/UI thread, applied in render loop
+        self._current_window_title = name
 
         W, H = glfw.get_window_size(self.v._window)
 
@@ -55,6 +61,9 @@ class ToolbarViewer:
         # User nearest interpolation for sharpness by default
         self.v.set_interp_nearest()
 
+        # For limiting OpenGL operations to UI thread
+        self.ui_tid = get_native_id() # main thread
+
         # User-provided
         self.setup_state()
         
@@ -80,6 +89,24 @@ class ToolbarViewer:
     def cleanup(self):
         """Manually cleanup OpenGL resources (only needed in batch mode)"""
         self.v.gl_shutdown()
+
+    def reset_window_title(self):
+        self._window_title = self._orig_window_title
+    
+    def set_window_title(self, title, suffix=False):
+        """
+        Set window title.
+        If called from compute thread: updated later by UI thread.
+        If called from UI thread: updated immediately.
+        suffix: if True, append title as suffix to original.
+        """
+        if suffix:
+            title = f'{self._orig_window_title} - {title}'
+        self._window_title = title
+        if self._current_window_title != title and get_native_id() == self.ui_tid:
+            # need glfw.make_context_current if calling from compute thread?
+            self._current_window_title = title
+            glfw.set_window_title(self.v._window, title)
 
     # Extra user content below image
     @property
@@ -118,6 +145,11 @@ class ToolbarViewer:
         return (self.mouse_pos_abs - self.output_pos_tl) / dims
 
     def _ui_main(self, v):
+        # Update window title
+        if self._current_window_title != self._window_title:
+            glfw.set_window_title(self.v._window, self._window_title)
+            self._current_window_title = self._window_title
+        
         self._toolbar_wrapper()
         self._draw_output()
 
