@@ -61,7 +61,7 @@ class ToolbarViewer:
         # Batch mode: handle compute loop manually, don't start UI
         if not batch_mode:
             self.start_UI()
-
+    
     def start_UI(self):
         compute_thread = threading.Thread(target=self._compute_loop, args=[])
         def init_callbacks(window):
@@ -76,6 +76,10 @@ class ToolbarViewer:
             self.setup_callbacks(window)
             self.pan_handler.set_callbacks(window)
         self.v.start(self._ui_main, (compute_thread), init_callbacks)
+
+    def cleanup(self):
+        """Manually cleanup OpenGL resources (only needed in batch mode)"""
+        self.v.gl_shutdown()
 
     # Extra user content below image
     @property

@@ -566,6 +566,18 @@ class viewer:
         c1 = s.colors[imgui.COLOR_FRAME_BACKGROUND]
         s.colors[imgui.COLOR_POPUP_BACKGROUND] = [x * 0.7 + y * 0.3 for x, y in zip(c0, c1)][:3] + [1]
 
+    def gl_shutdown(self):
+        """
+        Cleanup OpenGL resources. Called on window close
+        or manually if start() was never called (batch mode)
+        """
+        glfw.make_context_current(self._window)
+        del self._images
+        self._images: Dict[str, _texture] = {}
+        glfw.make_context_current(None)
+        glfw.destroy_window(self._window)
+        self.pop_context()
+    
     def start(self, loopfunc, workers = (), glfw_init_callback = None):
         self._pressed_keys = set()
         self._hit_keys = set()
@@ -671,13 +683,7 @@ class viewer:
         for i in range(len(workers)):
             workers[i].join()
             
-        glfw.make_context_current(self._window)
-        del self._images
-        self._images: Dict[str, _texture] = {}
-        glfw.make_context_current(None)
-
-        glfw.destroy_window(self._window)
-        self.pop_context()
+        self.gl_shutdown()
 
     def upload_image(self, name, data):
         if has_torch and torch.is_tensor(data):
