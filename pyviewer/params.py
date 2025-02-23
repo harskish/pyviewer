@@ -141,6 +141,14 @@ class Float3Param(_Range3Param):
     
     def draw_widget(self):
         return imgui.slider_float3(self.label, *self.value, self.min, self.max)
+
+class StringParam(Param):
+    def __init__(self, label, default_val: str, max_len=512, tooltip: str = None) -> None:
+        super().__init__(str, label, default_val, tooltip)
+        self.max_len = max_len
+    
+    def draw_widget(self):
+        return imgui.input_text(self.label, self.value, self.max_len)
     
 ##########################################
 # Container that exposes raw values
