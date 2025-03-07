@@ -33,7 +33,6 @@ class ToolbarViewer:
         # Window title can be used to show progress etc.
         self._orig_window_title = name
         self._window_title = name # updated from compute/UI thread, applied in render loop
-        self._current_window_title = name
 
         W, H = glfw.get_window_size(self.v._window)
 
@@ -103,9 +102,8 @@ class ToolbarViewer:
         if suffix:
             title = f'{self._orig_window_title} - {title}'
         self._window_title = title
-        if self._current_window_title != title and get_native_id() == self.ui_tid:
+        if get_native_id() == self.ui_tid:
             # need glfw.make_context_current if calling from compute thread?
-            self._current_window_title = title
             glfw.set_window_title(self.v._window, title)
 
     # Extra user content below image
@@ -146,7 +144,8 @@ class ToolbarViewer:
 
     def _ui_main(self, v):
         # Update window title
-        if self._current_window_title != self._window_title:
+        curr = glfw.get_window_title(v._window)
+        if curr != self._window_title:
             glfw.set_window_title(self.v._window, self._window_title)
             self._current_window_title = self._window_title
         
