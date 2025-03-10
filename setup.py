@@ -31,7 +31,7 @@ setup(name='pyviewer',
     packages=['pyviewer'], # name of importable thing
     setup_requires=['wheel'],
     install_requires=[
-        'glfw>2.0.0',
+        'glfw>=2.8.0', # get_window_title in 2.8+
         'numpy',
         'pyopengl>3.0.0',
         'pyplotgui',  # custom imgui+implot package
