@@ -36,7 +36,7 @@ jobs:
     permissions:
       # blog.pypi.org/posts/2023-04-20-introducing-trusted-publishers/
       id-token: write
-    if: github.event_name == 'release' && github.event.action == 'published'  # don't upload on manually triggered builds
+    # if: github.event_name == 'release' && github.event.action == 'published'  # don't upload on manually triggered builds
     steps:
       - uses: actions/download-artifact@v3
         with:
