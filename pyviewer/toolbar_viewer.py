@@ -5,6 +5,7 @@ import random
 import string
 import numpy as np
 import time
+from typing import Union
 from pathlib import Path
 from functools import partial
 from threading import get_native_id
@@ -324,9 +325,17 @@ class ToolbarViewer:
         self.v.upload_image(self.output_key, img_hwc)
     
     # Includes keyboard (glfw.KEY_A) and mouse (glfw.MOUSE_BUTTON_LEFT)
-    def keydown(self, key):
+    def keydown(self, key: Union[int, str]):
+        """key: glfw keycode or str matching glfw keycode constant"""
+        if isinstance(key, str):
+            key = getattr(glfw, key.upper())
         return self.v.keydown(key)
-
+    
+    def keyhit(self, key: str):
+        """key: glfw keycode or str matching glfw keycode constant"""
+        if isinstance(key, str):
+            key = getattr(glfw, key.upper())
+        return self.v.keyhit(key)
     #------------------------
     # User-provided functions
 

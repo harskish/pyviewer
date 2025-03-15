@@ -178,10 +178,12 @@ class ParamContainer:
             super().__setattr__(__name, __value)
             
     def as_dict(self):
-        ret = {}
-        for attr, _ in self.__dataclass_fields__.items():
-            ret[attr] = self.__getattribute__(attr)
-        return ret
+        # ret = {}
+        # for attr, _ in self.__dataclass_fields__.items():
+        #     ret[attr] = self.__getattribute__(attr)
+        # return ret
+        from dataclasses import asdict
+        return asdict(self)
     
     # Not consistent across interpreter instances
     def unstable_hash(self):
