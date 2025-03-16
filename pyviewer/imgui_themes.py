@@ -16,10 +16,16 @@ def to_snake_case(name: str) -> str:
 
     return name.lower()
 
-def color(hex):
-    hex = hex.lstrip('#')
-    rgba = [int(hex[i:i+2], 16) / 255.0 for i in (0, 2, 4, 6)]
-    return rgba
+def color(hex: str):
+    hex = hex.lower().lstrip('#')
+    if len(hex) == 6:
+        return [int(hex[i:i+2], 16) / 255.0 for i in (0, 2, 4)] + [1.0]
+    else:
+        return [int(hex[i:i+2], 16) / 255.0 for i in (0, 2, 4, 6)]
+    
+def color_uint(hex: str):
+    floats = color(hex)
+    return [int(f * 255) for f in floats]
 
 def set_color(s: imgui.Style, name: str, value):
     name = name.replace('ImGuiCol_', '')
