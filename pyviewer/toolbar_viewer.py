@@ -268,28 +268,34 @@ class ToolbarViewer:
             C = [0.8, 0.0, 0.0] if self.ui_locked else [0.0, 1.0, 0.0]
             s = self.v.ui_scale
 
-            imgui.text('') # needed for imgui.same_line
-
             # Custom user menu items
             self.draw_menu()
 
+            # same_line() and negative sizes don't work within menu bar
+            # => use invisible button instead
+            # Tested: 16.3.2025, imgui_bundle==1.6.2
+            max_x = imgui.get_window_width()
+            cursor = imgui.get_cursor_pos()[0]
+
             # UI scale slider
             if not self.ui_locked:
-                imgui.same_line(offset_from_start_x=imgui.get_window_width()-300-25*s)
+                pad = max_x - cursor - 300 - 30*s
+                imgui.invisible_button('##hidden', size=(pad, 1))
                 with imgui_item_width(300): # size not dependent on s => prevents slider drift
                     max_scale = max(self.v._imgui_fonts.keys()) / self.v.default_font_size
                     min_scale = min(self.v._imgui_fonts.keys()) / self.v.default_font_size
                     ch, val = imgui.slider_float('', s, min_scale, max_scale)
                 if ch:
                     self.v.set_ui_scale(val)
-
-            imgui.same_line(offset_from_start_x=imgui.get_window_width()-25*s)
+            else:
+                pad = max_x - cursor - 25*s
+                imgui.invisible_button('##hidden', size=(pad, 1))
+            
             imgui.push_style_color(imgui.Col_.text, (*C, 1))
             if imgui.button(T, size=(20*s, 0)):
                 self.ui_locked = not self.ui_locked
             imgui.pop_style_color()
             imgui.end_main_menu_bar()
-
         
         # Constant width, height dynamic based on output window
         v = self.v
