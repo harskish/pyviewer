@@ -19,7 +19,7 @@ from imgui_bundle.python_backends.glfw_backend import GlfwRenderer
 #imgui_bundle/bindings/imgui_bundle/python_backends/glfw_backend.py
 #from imgui.integrations.glfw import GlfwRenderer
 
-from .imgui_themes import theme_deep_dark
+from .imgui_themes import *
 
 from .utils import normalize_image_data
 
@@ -559,8 +559,6 @@ class viewer:
         #theme_ps()
         theme_deep_dark()
         #theme_contrast()
-
-        print('Setting imgui style')
         
         # Overrides based on UI scale / font size
         s = imgui.get_style()
