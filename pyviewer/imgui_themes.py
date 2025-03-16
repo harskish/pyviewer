@@ -1,97 +1,111 @@
-import imgui
+from imgui_bundle import imgui
+import re
 
 """ Convenience consts and functions to make copy-pasting C++ style configs easier """
 
+# https://github.com/pthom/litgen/blob/48f2f521/src/codemanip/code_utils.py#L228
+def to_snake_case(name: str) -> str:
+    if "re1" not in to_snake_case.__dict__:
+        to_snake_case.re1 = re.compile("(.)([A-Z][a-z]+)")  # type: ignore
+        to_snake_case.re2 = re.compile("__([A-Z])")  # type: ignore
+        to_snake_case.re3 = re.compile("([a-z0-9])([A-Z])")  # type: ignore
+
+    name = to_snake_case.re1.sub(r"\1_\2", name)  # type: ignore
+    name = to_snake_case.re2.sub(r"_\1", name)  # type: ignore
+    name = to_snake_case.re3.sub(r"\1_\2", name)  # type: ignore
+
+    return name.lower()
+
 # ==== Color identifiers for styling ====
 # https://github.com/pyimgui/pyimgui/blob/1.4.0/imgui/core.pyx#L193
-ImGuiCol_Text = imgui.COLOR_TEXT
-ImGuiCol_TextDisabled = imgui.COLOR_TEXT_DISABLED
-ImGuiCol_WindowBg = imgui.COLOR_WINDOW_BACKGROUND
-ImGuiCol_ChildBg = imgui.COLOR_CHILD_BACKGROUND
-ImGuiCol_PopupBg = imgui.COLOR_POPUP_BACKGROUND
-ImGuiCol_Border = imgui.COLOR_BORDER
-ImGuiCol_BorderShadow = imgui.COLOR_BORDER_SHADOW
-ImGuiCol_FrameBg = imgui.COLOR_FRAME_BACKGROUND
-ImGuiCol_FrameBgHovered = imgui.COLOR_FRAME_BACKGROUND_HOVERED
-ImGuiCol_FrameBgActive = imgui.COLOR_FRAME_BACKGROUND_ACTIVE
-ImGuiCol_TitleBg = imgui.COLOR_TITLE_BACKGROUND
-ImGuiCol_TitleBgActive = imgui.COLOR_TITLE_BACKGROUND_ACTIVE
-ImGuiCol_TitleBgCollapsed = imgui.COLOR_TITLE_BACKGROUND_COLLAPSED
-ImGuiCol_MenuBarBg = imgui.COLOR_MENUBAR_BACKGROUND
-ImGuiCol_ScrollbarBg = imgui.COLOR_SCROLLBAR_BACKGROUND
-ImGuiCol_ScrollbarGrab = imgui.COLOR_SCROLLBAR_GRAB
-ImGuiCol_ScrollbarGrabHovered = imgui.COLOR_SCROLLBAR_GRAB_HOVERED
-ImGuiCol_ScrollbarGrabActive = imgui.COLOR_SCROLLBAR_GRAB_ACTIVE
-ImGuiCol_CheckMark = imgui.COLOR_CHECK_MARK
-ImGuiCol_SliderGrab = imgui.COLOR_SLIDER_GRAB
-ImGuiCol_SliderGrabActive = imgui.COLOR_SLIDER_GRAB_ACTIVE
-ImGuiCol_Button = imgui.COLOR_BUTTON
-ImGuiCol_ButtonHovered = imgui.COLOR_BUTTON_HOVERED
-ImGuiCol_ButtonActive = imgui.COLOR_BUTTON_ACTIVE
-ImGuiCol_Header = imgui.COLOR_HEADER
-ImGuiCol_HeaderHovered = imgui.COLOR_HEADER_HOVERED
-ImGuiCol_HeaderActive = imgui.COLOR_HEADER_ACTIVE
-ImGuiCol_Separator = imgui.COLOR_SEPARATOR
-ImGuiCol_SeparatorHovered = imgui.COLOR_SEPARATOR_HOVERED
-ImGuiCol_SeparatorActive = imgui.COLOR_SEPARATOR_ACTIVE
-ImGuiCol_ResizeGrip = imgui.COLOR_RESIZE_GRIP
-ImGuiCol_ResizeGripHovered = imgui.COLOR_RESIZE_GRIP_HOVERED
-ImGuiCol_ResizeGripActive = imgui.COLOR_RESIZE_GRIP_ACTIVE
-ImGuiCol_PlotLines = imgui.COLOR_PLOT_LINES
-ImGuiCol_PlotLinesHovered = imgui.COLOR_PLOT_LINES_HOVERED
-ImGuiCol_PlotHistogram = imgui.COLOR_PLOT_HISTOGRAM
-ImGuiCol_PlotHistogramHovered = imgui.COLOR_PLOT_HISTOGRAM_HOVERED
-ImGuiCol_TextSelectedBg = imgui.COLOR_TEXT_SELECTED_BACKGROUND
-ImGuiCol_DragDropTarget = imgui.COLOR_DRAG_DROP_TARGET
-ImGuiCol_NavHighlight = imgui.COLOR_NAV_HIGHLIGHT
-ImGuiCol_NavWindowingHighlight = imgui.COLOR_NAV_WINDOWING_HIGHLIGHT
-ImGuiCol_NavWindowingDimBg = imgui.COLOR_NAV_WINDOWING_DIM_BACKGROUND
-ImGuiCol_ModalWindowDimBg = imgui.COLOR_MODAL_WINDOW_DIM_BACKGROUND
-ImGuiCol_COUNT = imgui.COLOR_COUNT
-# ImGuiCol_Tab = ''
-# ImGuiCol_TabHovered = ''
-# ImGuiCol_TabActive = ''
-# ImGuiCol_TabUnfocused = ''
-# ImGuiCol_TabUnfocusedActive = ''
-# ImGuiCol_DockingPreview = ''
-# ImGuiCol_DockingEmptyBg = ''
-# ImGuiCol_TableHeaderBg = ''
-# ImGuiCol_TableBorderStrong = ''
-# ImGuiCol_TableBorderLight = ''
-# ImGuiCol_TableRowBg = ''
-# ImGuiCol_TableRowBgAlt = ''
+# ImGuiCol_Text = imgui.Col_.text
+# ImGuiCol_TextDisabled = imgui.Col_.text_disabled
+# ImGuiCol_WindowBg = imgui.Col_.window_bg
+# ImGuiCol_ChildBg = imgui.Col_.child_bg
+# ImGuiCol_PopupBg = imgui.Col_.popup_bg
+# ImGuiCol_Border = imgui.Col_.border
+# ImGuiCol_BorderShadow = imgui.Col_.border_shadow
+# ImGuiCol_FrameBg = imgui.Col_.frame_bg
+# ImGuiCol_FrameBgHovered = imgui.Col_.frame_bg_hovered
+# ImGuiCol_FrameBgActive = imgui.Col_.frame_bg_active
+# ImGuiCol_TitleBg = imgui.Col_.title_bg
+# ImGuiCol_TitleBgActive = imgui.Col_.title_bg_active
+# ImGuiCol_TitleBgCollapsed = imgui.Col_.title_bg_collapsed
+# ImGuiCol_MenuBarBg = imgui.Col_.menu_bar_bg
+# ImGuiCol_ScrollbarBg = imgui.Col_.scrollbar_bg
+# ImGuiCol_ScrollbarGrab = imgui.Col_.scrollbar_grab
+# ImGuiCol_ScrollbarGrabHovered = imgui.Col_.scrollbar_grab_hovered
+# ImGuiCol_ScrollbarGrabActive = imgui.Col_.scrollbar_grab_active
+# ImGuiCol_CheckMark = imgui.Col_.check_mark
+# ImGuiCol_SliderGrab = imgui.Col_.slider_grab
+# ImGuiCol_SliderGrabActive = imgui.Col_.slider_grab_active
+# ImGuiCol_Button = imgui.Col_.button
+# ImGuiCol_ButtonHovered = imgui.Col_.button_hovered
+# ImGuiCol_ButtonActive = imgui.Col_.button_active
+# ImGuiCol_Header = imgui.Col_.header
+# ImGuiCol_HeaderHovered = imgui.Col_.header_hovered
+# ImGuiCol_HeaderActive = imgui.Col_.header_active
+# ImGuiCol_Separator = imgui.Col_.separator
+# ImGuiCol_SeparatorHovered = imgui.Col_.separator_hovered
+# ImGuiCol_SeparatorActive = imgui.Col_.separator_active
+# ImGuiCol_ResizeGrip = imgui.Col_.resize_grip
+# ImGuiCol_ResizeGripHovered = imgui.Col_.resize_grip_hovered
+# ImGuiCol_ResizeGripActive = imgui.Col_.resize_grip_active
+# ImGuiCol_PlotLines = imgui.Col_.plot_lines
+# ImGuiCol_PlotLinesHovered = imgui.Col_.plot_lines_hovered
+# ImGuiCol_PlotHistogram = imgui.Col_.plot_histogram
+# ImGuiCol_PlotHistogramHovered = imgui.Col_.plot_histogram_hovered
+# ImGuiCol_TextSelectedBg = imgui.Col_.text_selected_bg
+# ImGuiCol_DragDropTarget = imgui.Col_.drag_drop_target
+# ImGuiCol_NavHighlight = imgui.Col_.nav_cursor # TODO: chekc
+# ImGuiCol_NavWindowingHighlight = imgui.Col_.nav_windowing_highlight
+# ImGuiCol_NavWindowingDimBg = imgui.Col_.nav_windowing_dim_bg
+# ImGuiCol_ModalWindowDimBg = imgui.Col_.modal_window_dim_bg
+# ImGuiCol_COUNT = imgui.Col_.count
+# ImGuiCol_Tab = imgui.Col_.tab
+# ImGuiCol_TabHovered = imgui.Col_.tab_hovered
+# #ImGuiCol_TabActive = imgui.Col_.tab_dimmed_selected # ??
+# #ImGuiCol_TabUnfocused = imgui.Col_.tab_dimmed # ??
+# #ImGuiCol_TabUnfocusedActive = imgui.Col_.tab_dimmed_selected # ??
+# ImGuiCol_DockingPreview = imgui.Col_.docking_preview
+# ImGuiCol_DockingEmptyBg = imgui.Col_.docking_empty_bg
+# ImGuiCol_TableHeaderBg = imgui.Col_.table_header_bg
+# ImGuiCol_TableBorderStrong = imgui.Col_.table_border_strong
+# ImGuiCol_TableBorderLight = imgui.Col_.table_border_light
+# ImGuiCol_TableRowBg = imgui.Col_.table_row_bg
+# ImGuiCol_TableRowBgAlt = imgui.Col_.table_row_bg_alt
 
 # style consts in v1.4.0
-Alpha = 'alpha'
-AntiAliasedFill = 'anti_aliased_fill'
-AntiAliasedLines = 'anti_aliased_lines'
-ButtonTextAlign = 'button_text_align'
-ChildBorderSize = 'child_border_size'
-ChildRounding = 'child_rounding'
-Color = 'color'
-ColumnsMinSpacing = 'columns_min_spacing'
-CurveTessellationTolerance = 'curve_tessellation_tolerance'
-DisplaySafeAreaPadding = 'display_safe_area_padding'
-DisplayWindowPadding = 'display_window_padding'
-FrameBorderSize = 'frame_border_size'
-FramePadding = 'frame_padding'
-FrameRounding = 'frame_rounding'
-GrabMinSize = 'grab_min_size'
-GrabRounding = 'grab_rounding'
-IndentSpacing = 'indent_spacing'
-ItemInnerSpacing = 'item_inner_spacing'
-ItemSpacing = 'item_spacing'
-MouseCursorScale = 'mouse_cursor_scale'
-PopupBorderSize = 'popup_border_size'
-PopupRounding = 'popup_rounding'
-ScrollbarRounding = 'scrollbar_rounding'
-ScrollbarSize = 'scrollbar_size'
-TouchExtraPadding = 'touch_extra_padding'
-WindowBorderSize = 'window_border_size'
-WindowMinSize = 'window_min_size'
-WindowPadding = 'window_padding'
-WindowRounding = 'window_rounding'
-WindowTitleAlign = 'window_title_align'
+# Alpha = to_snake_case('Alpha') # = 'alpha'
+# AntiAliasedFill = to_snake_case('AntiAliasedFill') # = 'anti_aliased_fill'
+# AntiAliasedLines = to_snake_case('AntiAliasedLines') # = 'anti_aliased_lines'
+# ButtonTextAlign = to_snake_case('ButtonTextAlign') # = 'button_text_align'
+# ChildBorderSize = to_snake_case('ChildBorderSize') # = 'child_border_size'
+# ChildRounding = to_snake_case('ChildRounding') # = 'child_rounding'
+# Color = to_snake_case('Color') # = 'color'
+# ColumnsMinSpacing = to_snake_case('ColumnsMinSpacing') # = 'columns_min_spacing'
+# CurveTessellationTolerance = to_snake_case('CurveTessellationTolerance') # = 'curve_tessellation_tolerance'
+# DisplaySafeAreaPadding = to_snake_case('DisplaySafeAreaPadding') # = 'display_safe_area_padding'
+# DisplayWindowPadding = to_snake_case('DisplayWindowPadding') # = 'display_window_padding'
+# FrameBorderSize = to_snake_case('FrameBorderSize') # = 'frame_border_size'
+# FramePadding = to_snake_case('FramePadding') # = 'frame_padding'
+# FrameRounding = to_snake_case('FrameRounding') # = 'frame_rounding'
+# GrabMinSize = to_snake_case('GrabMinSize') # = 'grab_min_size'
+# GrabRounding = to_snake_case('GrabRounding') # = 'grab_rounding'
+# IndentSpacing = to_snake_case('IndentSpacing') # = 'indent_spacing'
+# ItemInnerSpacing = to_snake_case('ItemInnerSpacing') # = 'item_inner_spacing'
+# ItemSpacing = to_snake_case('ItemSpacing') # = 'item_spacing'
+# MouseCursorScale = to_snake_case('MouseCursorScale') # = 'mouse_cursor_scale'
+# PopupBorderSize = to_snake_case('PopupBorderSize') # = 'popup_border_size'
+# PopupRounding = to_snake_case('PopupRounding') # = 'popup_rounding'
+# ScrollbarRounding = to_snake_case('ScrollbarRounding') # = 'scrollbar_rounding'
+# ScrollbarSize = to_snake_case('ScrollbarSize') # = 'scrollbar_size'
+# TouchExtraPadding = to_snake_case('TouchExtraPadding') # = 'touch_extra_padding'
+# WindowBorderSize = to_snake_case('WindowBorderSize') # = 'window_border_size'
+# WindowMinSize = to_snake_case('WindowMinSize') # = 'window_min_size'
+# WindowPadding = to_snake_case('WindowPadding') # = 'window_padding'
+# WindowRounding = to_snake_case('WindowRounding') # = 'window_rounding'
+# WindowTitleAlign = to_snake_case('WindowTitleAlign') # = 'window_title_align'
 # DisabledAlpha = ''
 # WindowMenuButtonPosition = ''
 # CellPadding = ''
@@ -112,36 +126,41 @@ def color(hex):
 def theme_ps():
     s = imgui.get_style()
 
-    setattr(s, Alpha, 1.0)
-    #setattr(s, DisabledAlpha, 0.6000000238418579)
-    setattr(s, WindowPadding, imgui.Vec2(8.0, 8.0))
-    setattr(s, WindowRounding, 4.0)
-    setattr(s, WindowBorderSize, 1.0)
-    setattr(s, WindowMinSize, imgui.Vec2(32.0, 32.0))
-    setattr(s, WindowTitleAlign, imgui.Vec2(0.0, 0.5))
-    #setattr(s, WindowMenuButtonPosition, imgui.DIRECTION_LEFT)
-    setattr(s, ChildRounding, 4.0)
-    setattr(s, ChildBorderSize, 1.0)
-    setattr(s, PopupRounding, 2.0)
-    setattr(s, PopupBorderSize, 1.0)
-    setattr(s, FramePadding, imgui.Vec2(4.0, 3.0))
-    setattr(s, FrameRounding, 2.0)
-    setattr(s, FrameBorderSize, 1.0)
-    setattr(s, ItemSpacing, imgui.Vec2(8.0, 4.0))
-    setattr(s, ItemInnerSpacing, imgui.Vec2(4.0, 4.0))
-    #setattr(s, CellPadding, imgui.Vec2(4.0, 2.0))
-    setattr(s, IndentSpacing, 21.0)
-    setattr(s, ColumnsMinSpacing, 6.0)
-    setattr(s, ScrollbarSize, 13.0)
-    setattr(s, ScrollbarRounding, 12.0)
-    setattr(s, GrabMinSize, 7.0)
-    setattr(s, GrabRounding, 0.0)
-    #setattr(s, TabRounding, 0.0)
-    #setattr(s, TabBorderSize, 1.0)
-    #setattr(s, TabMinWidthForCloseButton, 0.0)
-    #setattr(s, ColorButtonPosition, imgui.DIRECTION_RIGHT)
-    setattr(s, ButtonTextAlign, imgui.Vec2(0.5, 0.5))
-    #setattr(s, SelectableTextAlign, imgui.Vec2(0.0, 0.0))
+    def set(name, value):
+        name = to_snake_case(name)
+        assert hasattr(s, name), f"Style has no attribute {name}"
+        setattr(s, name, value)
+
+    set(s, 'Alpha', 1.0)
+    #set(s, 'DisabledAlpha', 0.6000000238418579)
+    set(s, 'WindowPadding', imgui.Vec2(8.0, 8.0))
+    set(s, 'WindowRounding', 4.0)
+    set(s, 'WindowBorderSize', 1.0)
+    set(s, 'WindowMinSize', imgui.Vec2(32.0, 32.0))
+    set(s, 'WindowTitleAlign', imgui.Vec2(0.0, 0.5))
+    #set(s, 'WindowMenuButtonPosition', imgui.DIRECTION_LEFT)
+    set(s, 'ChildRounding', 4.0)
+    set(s, 'ChildBorderSize', 1.0)
+    set(s, 'PopupRounding', 2.0)
+    set(s, 'PopupBorderSize', 1.0)
+    set(s, 'FramePadding', imgui.Vec2(4.0, 3.0))
+    set(s, 'FrameRounding', 2.0)
+    set(s, 'FrameBorderSize', 1.0)
+    set(s, 'ItemSpacing', imgui.Vec2(8.0, 4.0))
+    set(s, 'ItemInnerSpacing', imgui.Vec2(4.0, 4.0))
+    #set(s, 'CellPadding', imgui.Vec2(4.0, 2.0))
+    set(s, 'IndentSpacing', 21.0)
+    set(s, 'ColumnsMinSpacing', 6.0)
+    set(s, 'ScrollbarSize', 13.0)
+    set(s, 'ScrollbarRounding', 12.0)
+    set(s, 'GrabMinSize', 7.0)
+    set(s, 'GrabRounding', 0.0)
+    #set(s, 'TabRounding', 0.0)
+    #set(s, 'TabBorderSize', 1.0)
+    #set(s, 'TabMinWidthForCloseButton', 0.0)
+    #set(s, 'ColorButtonPosition', imgui.DIRECTION_RIGHT)
+    set(s, 'ButtonTextAlign', imgui.Vec2(0.5, 0.5))
+    #set(s, 'SelectableTextAlign', imgui.Vec2(0.0, 0.0))
     
     s.colors[ImGuiCol_Text] =                  imgui.Vec4(1.0, 1.0, 1.0, 1.0)
     s.colors[ImGuiCol_TextDisabled] =          imgui.Vec4(0.4980392158031464, 0.4980392158031464, 0.4980392158031464, 1.0)
@@ -191,84 +210,100 @@ def theme_ps():
 def theme_deep_dark():
     s = imgui.get_style()
 
-    # setattr(s, WindowPadding,     imgui.Vec2(8.00, 8.00))
-    # setattr(s, FramePadding,      imgui.Vec2(5.00, 2.00))
-    # #setattr(s, CellPadding,       imgui.Vec2(6.00, 6.00))
-    # setattr(s, ItemSpacing,       imgui.Vec2(6.00, 6.00))
-    # setattr(s, ItemInnerSpacing,  imgui.Vec2(6.00, 6.00))
-    # setattr(s, TouchExtraPadding, imgui.Vec2(0.00, 0.00))
-    # setattr(s, IndentSpacing,     25)
-    # setattr(s, ScrollbarSize,     15)
-    #setattr(s, GrabMinSize,       10)
-    setattr(s, WindowBorderSize,  1)
-    setattr(s, ChildBorderSize,   1)
-    setattr(s, PopupBorderSize,   1)
-    setattr(s, FrameBorderSize,   1)
-    # #setattr(s, TabBorderSize,     1)
-    # setattr(s, WindowRounding,    7)
-    setattr(s, ChildRounding,     4)
-    setattr(s, FrameRounding,     3)
-    setattr(s, PopupRounding,     4)
-    setattr(s, ScrollbarRounding, 5)
-    setattr(s, GrabRounding,      3)
-    # #setattr(s, LogSliderDeadzone, 4)
-    # #setattr(s, TabRounding,       4)
+    def set(s, name, value):
+        name = to_snake_case(name)
+        assert hasattr(s, name), f"Style has no attribute {name}"
+        setattr(s, name, value)
+
+    # set(s, 'WindowPadding',     imgui.Vec2(8.00, 8.00))
+    # set(s, 'FramePadding',      imgui.Vec2(5.00, 2.00))
+    # #set(s, 'CellPadding',       imgui.Vec2(6.00, 6.00))
+    # set(s, 'ItemSpacing',       imgui.Vec2(6.00, 6.00))
+    # set(s, 'ItemInnerSpacing',  imgui.Vec2(6.00, 6.00))
+    # set(s, 'TouchExtraPadding', imgui.Vec2(0.00, 0.00))
+    # set(s, 'IndentSpacing',     25)
+    # set(s, 'ScrollbarSize',     15)
+    #set(s, 'GrabMinSize',       10)
+    set(s, 'WindowBorderSize',  1)
+    set(s, 'ChildBorderSize',   1)
+    set(s, 'PopupBorderSize',   1)
+    set(s, 'FrameBorderSize',   1)
+    # #set(s, 'TabBorderSize',     1)
+    # set(s, 'WindowRounding',    7)
+    set(s, 'ChildRounding',     4)
+    set(s, 'FrameRounding',     3)
+    set(s, 'PopupRounding',     4)
+    set(s, 'ScrollbarRounding', 5)
+    set(s, 'GrabRounding',      3)
+    # #set(s, 'LogSliderDeadzone', 4)
+    # #set(s, 'TabRounding',       4)
     
-    s.colors[ImGuiCol_Text]                   = imgui.Vec4(1.00, 1.00, 1.00, 1.00)
-    s.colors[ImGuiCol_TextDisabled]           = imgui.Vec4(0.50, 0.50, 0.50, 1.00)
-    s.colors[ImGuiCol_WindowBg]               = imgui.Vec4(0.10, 0.10, 0.10, 1.00)
-    s.colors[ImGuiCol_ChildBg]                = imgui.Vec4(0.00, 0.00, 0.00, 0.00)
-    s.colors[ImGuiCol_PopupBg]                = imgui.Vec4(0.19, 0.19, 0.19, 0.92)
-    s.colors[ImGuiCol_Border]                 = imgui.Vec4(0.19, 0.19, 0.19, 0.29)
-    s.colors[ImGuiCol_BorderShadow]           = imgui.Vec4(0.00, 0.00, 0.00, 0.24)
-    s.colors[ImGuiCol_FrameBg]                = imgui.Vec4(0.05, 0.05, 0.05, 0.54)
-    s.colors[ImGuiCol_FrameBgHovered]         = imgui.Vec4(0.19, 0.19, 0.19, 0.54)
-    s.colors[ImGuiCol_FrameBgActive]          = imgui.Vec4(0.20, 0.22, 0.23, 1.00)
-    s.colors[ImGuiCol_TitleBg]                = imgui.Vec4(0.00, 0.00, 0.00, 1.00)
-    s.colors[ImGuiCol_TitleBgActive]          = imgui.Vec4(0.06, 0.06, 0.06, 1.00)
-    s.colors[ImGuiCol_TitleBgCollapsed]       = imgui.Vec4(0.00, 0.00, 0.00, 1.00)
-    s.colors[ImGuiCol_MenuBarBg]              = imgui.Vec4(0.14, 0.14, 0.14, 1.00)
-    s.colors[ImGuiCol_ScrollbarBg]            = imgui.Vec4(0.05, 0.05, 0.05, 0.54)
-    s.colors[ImGuiCol_ScrollbarGrab]          = imgui.Vec4(0.34, 0.34, 0.34, 0.54)
-    s.colors[ImGuiCol_ScrollbarGrabHovered]   = imgui.Vec4(0.40, 0.40, 0.40, 0.54)
-    s.colors[ImGuiCol_ScrollbarGrabActive]    = imgui.Vec4(0.56, 0.56, 0.56, 0.54)
-    s.colors[ImGuiCol_CheckMark]              = imgui.Vec4(0.33, 0.67, 0.86, 1.00)
-    s.colors[ImGuiCol_SliderGrab]             = imgui.Vec4(0.34, 0.34, 0.34, 0.54)
-    s.colors[ImGuiCol_SliderGrabActive]       = imgui.Vec4(0.56, 0.56, 0.56, 0.54)
-    s.colors[ImGuiCol_Button]                 = imgui.Vec4(0.05, 0.05, 0.05, 0.54)
-    s.colors[ImGuiCol_ButtonHovered]          = imgui.Vec4(0.19, 0.19, 0.19, 0.54)
-    s.colors[ImGuiCol_ButtonActive]           = imgui.Vec4(0.20, 0.22, 0.23, 1.00)
-    s.colors[ImGuiCol_Header]                 = imgui.Vec4(0.00, 0.00, 0.00, 0.52)
-    s.colors[ImGuiCol_HeaderHovered]          = imgui.Vec4(0.00, 0.00, 0.00, 0.36)
-    s.colors[ImGuiCol_HeaderActive]           = imgui.Vec4(0.20, 0.22, 0.23, 0.33)
-    s.colors[ImGuiCol_Separator]              = imgui.Vec4(0.28, 0.28, 0.28, 0.29)
-    s.colors[ImGuiCol_SeparatorHovered]       = imgui.Vec4(0.44, 0.44, 0.44, 0.29)
-    s.colors[ImGuiCol_SeparatorActive]        = imgui.Vec4(0.40, 0.44, 0.47, 1.00)
-    s.colors[ImGuiCol_ResizeGrip]             = imgui.Vec4(0.28, 0.28, 0.28, 0.29)
-    s.colors[ImGuiCol_ResizeGripHovered]      = imgui.Vec4(0.44, 0.44, 0.44, 0.29)
-    s.colors[ImGuiCol_ResizeGripActive]       = imgui.Vec4(0.40, 0.44, 0.47, 1.00)
-    #s.colors[ImGuiCol_Tab]                    = imgui.Vec4(0.00, 0.00, 0.00, 0.52)
-    #s.colors[ImGuiCol_TabHovered]             = imgui.Vec4(0.14, 0.14, 0.14, 1.00)
-    #s.colors[ImGuiCol_TabActive]              = imgui.Vec4(0.20, 0.20, 0.20, 0.36)
-    #s.colors[ImGuiCol_TabUnfocused]           = imgui.Vec4(0.00, 0.00, 0.00, 0.52)
-    #s.colors[ImGuiCol_TabUnfocusedActive]     = imgui.Vec4(0.14, 0.14, 0.14, 1.00)
-    #s.colors[ImGuiCol_DockingPreview]         = imgui.Vec4(0.33, 0.67, 0.86, 1.00)
-    #s.colors[ImGuiCol_DockingEmptyBg]         = imgui.Vec4(1.00, 0.00, 0.00, 1.00)
-    s.colors[ImGuiCol_PlotLines]              = imgui.Vec4(1.00, 0.00, 0.00, 1.00)
-    s.colors[ImGuiCol_PlotLinesHovered]       = imgui.Vec4(1.00, 0.00, 0.00, 1.00)
-    s.colors[ImGuiCol_PlotHistogram]          = imgui.Vec4(1.00, 0.00, 0.00, 1.00)
-    s.colors[ImGuiCol_PlotHistogramHovered]   = imgui.Vec4(1.00, 0.00, 0.00, 1.00)
-    #s.colors[ImGuiCol_TableHeaderBg]          = imgui.Vec4(0.00, 0.00, 0.00, 0.52)
-    #s.colors[ImGuiCol_TableBorderStrong]      = imgui.Vec4(0.00, 0.00, 0.00, 0.52)
-    #s.colors[ImGuiCol_TableBorderLight]       = imgui.Vec4(0.28, 0.28, 0.28, 0.29)
-    #s.colors[ImGuiCol_TableRowBg]             = imgui.Vec4(0.00, 0.00, 0.00, 0.00)
-    #s.colors[ImGuiCol_TableRowBgAlt]          = imgui.Vec4(1.00, 1.00, 1.00, 0.06)
-    s.colors[ImGuiCol_TextSelectedBg]         = imgui.Vec4(0.20, 0.22, 0.23, 1.00)
-    s.colors[ImGuiCol_DragDropTarget]         = imgui.Vec4(0.33, 0.67, 0.86, 1.00)
-    s.colors[ImGuiCol_NavHighlight]           = imgui.Vec4(1.00, 0.00, 0.00, 1.00)
-    s.colors[ImGuiCol_NavWindowingHighlight]  = imgui.Vec4(1.00, 0.00, 0.00, 0.70)
-    s.colors[ImGuiCol_NavWindowingDimBg]      = imgui.Vec4(1.00, 0.00, 0.00, 0.20)
-    s.colors[ImGuiCol_ModalWindowDimBg]       = imgui.Vec4(1.00, 0.00, 0.00, 0.35)
+    #from imgui_bundle/external/bindings_generation/external_library.py
+
+    def set_color(name: str, value):
+        name = name.replace('ImGuiCol_', '')
+        name = to_snake_case(name)
+        col = getattr(imgui.Col_, name, None)
+        if col is None:
+            print(f'Ignoring unknown style var "{name}"')
+        else:
+            s.set_color_(col, value)
+    
+    set_color('ImGuiCol_Text',                   (1.00, 1.00, 1.00, 1.00))
+    set_color('ImGuiCol_TextDisabled',           (0.50, 0.50, 0.50, 1.00))
+    set_color('ImGuiCol_WindowBg',               (0.10, 0.10, 0.10, 1.00))
+    set_color('ImGuiCol_ChildBg',                (0.00, 0.00, 0.00, 0.00))
+    set_color('ImGuiCol_PopupBg',                (0.19, 0.19, 0.19, 0.92))
+    set_color('ImGuiCol_Border',                 (0.19, 0.19, 0.19, 0.29))
+    set_color('ImGuiCol_BorderShadow',           (0.00, 0.00, 0.00, 0.24))
+    set_color('ImGuiCol_FrameBg',                (0.05, 0.05, 0.05, 0.54))
+    set_color('ImGuiCol_FrameBgHovered',         (0.19, 0.19, 0.19, 0.54))
+    set_color('ImGuiCol_FrameBgActive',          (0.20, 0.22, 0.23, 1.00))
+    set_color('ImGuiCol_TitleBg',                (0.00, 0.00, 0.00, 1.00))
+    set_color('ImGuiCol_TitleBgActive',          (0.06, 0.06, 0.06, 1.00))
+    set_color('ImGuiCol_TitleBgCollapsed',       (0.00, 0.00, 0.00, 1.00))
+    set_color('ImGuiCol_MenuBarBg',              (0.14, 0.14, 0.14, 1.00))
+    set_color('ImGuiCol_ScrollbarBg',            (0.05, 0.05, 0.05, 0.54))
+    set_color('ImGuiCol_ScrollbarGrab',          (0.34, 0.34, 0.34, 0.54))
+    set_color('ImGuiCol_ScrollbarGrabHovered',   (0.40, 0.40, 0.40, 0.54))
+    set_color('ImGuiCol_ScrollbarGrabActive',    (0.56, 0.56, 0.56, 0.54))
+    set_color('ImGuiCol_CheckMark',              (0.33, 0.67, 0.86, 1.00))
+    set_color('ImGuiCol_SliderGrab',             (0.34, 0.34, 0.34, 0.54))
+    set_color('ImGuiCol_SliderGrabActive',       (0.56, 0.56, 0.56, 0.54))
+    set_color('ImGuiCol_Button',                 (0.05, 0.05, 0.05, 0.54))
+    set_color('ImGuiCol_ButtonHovered',          (0.19, 0.19, 0.19, 0.54))
+    set_color('ImGuiCol_ButtonActive',           (0.20, 0.22, 0.23, 1.00))
+    set_color('ImGuiCol_Header',                 (0.00, 0.00, 0.00, 0.52))
+    set_color('ImGuiCol_HeaderHovered',          (0.00, 0.00, 0.00, 0.36))
+    set_color('ImGuiCol_HeaderActive',           (0.20, 0.22, 0.23, 0.33))
+    set_color('ImGuiCol_Separator',              (0.28, 0.28, 0.28, 0.29))
+    set_color('ImGuiCol_SeparatorHovered',       (0.44, 0.44, 0.44, 0.29))
+    set_color('ImGuiCol_SeparatorActive',        (0.40, 0.44, 0.47, 1.00))
+    set_color('ImGuiCol_ResizeGrip',             (0.28, 0.28, 0.28, 0.29))
+    set_color('ImGuiCol_ResizeGripHovered',      (0.44, 0.44, 0.44, 0.29))
+    set_color('ImGuiCol_ResizeGripActive',       (0.40, 0.44, 0.47, 1.00))
+    set_color('ImGuiCol_Tab',                    (0.00, 0.00, 0.00, 0.52))
+    set_color('ImGuiCol_TabHovered',             (0.14, 0.14, 0.14, 1.00))
+    set_color('ImGuiCol_TabActive',              (0.20, 0.20, 0.20, 0.36))
+    set_color('ImGuiCol_TabUnfocused',           (0.00, 0.00, 0.00, 0.52))
+    set_color('ImGuiCol_TabUnfocusedActive',     (0.14, 0.14, 0.14, 1.00))
+    set_color('ImGuiCol_DockingPreview',         (0.33, 0.67, 0.86, 1.00))
+    set_color('ImGuiCol_DockingEmptyBg',         (1.00, 0.00, 0.00, 1.00))
+    set_color('ImGuiCol_PlotLines',              (1.00, 0.00, 0.00, 1.00))
+    set_color('ImGuiCol_PlotLinesHovered',       (1.00, 0.00, 0.00, 1.00))
+    set_color('ImGuiCol_PlotHistogram',          (1.00, 0.00, 0.00, 1.00))
+    set_color('ImGuiCol_PlotHistogramHovered',   (1.00, 0.00, 0.00, 1.00))
+    set_color('ImGuiCol_TableHeaderBg',          (0.00, 0.00, 0.00, 0.52))
+    set_color('ImGuiCol_TableBorderStrong',      (0.00, 0.00, 0.00, 0.52))
+    set_color('ImGuiCol_TableBorderLight',       (0.28, 0.28, 0.28, 0.29))
+    set_color('ImGuiCol_TableRowBg',             (0.00, 0.00, 0.00, 0.00))
+    set_color('ImGuiCol_TableRowBgAlt',          (1.00, 1.00, 1.00, 0.06))
+    set_color('ImGuiCol_TextSelectedBg',         (0.20, 0.22, 0.23, 1.00))
+    set_color('ImGuiCol_DragDropTarget',         (0.33, 0.67, 0.86, 1.00))
+    #set_color('ImGuiCol_NavHighlight',           (1.00, 0.00, 0.00, 1.00))
+    set_color('ImGuiCol_NavWindowingHighlight',  (1.00, 0.00, 0.00, 0.70))
+    set_color('ImGuiCol_NavWindowingDimBg',      (1.00, 0.00, 0.00, 0.20))
+    set_color('ImGuiCol_ModalWindowDimBg',       (1.00, 0.00, 0.00, 0.35))
 
 # Deep-dark with ps-style borders
 def theme_contrast():

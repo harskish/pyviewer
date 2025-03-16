@@ -34,7 +34,8 @@ setup(name='pyviewer',
         'glfw==2.8.0', # get_window_title in 2.8+
         'numpy',
         'pyopengl==3.1.7',
-        'pyplotgui',  # custom imgui+implot package
+        #'pyplotgui',  # custom imgui+implot package
+        'imgui-bundle==1.6.2', # imgui + implot + many others
         'setuptools<=72.1.0', # github.com/pytorch/pytorch/issues/136541
         'light-process==0.0.7',
         'py==1.11.0', # for capturing c++ extension stdout/stderr, part of pytest

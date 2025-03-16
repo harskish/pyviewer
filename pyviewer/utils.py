@@ -1,5 +1,5 @@
 import numpy as np
-import imgui
+from imgui_bundle import imgui
 import contextlib
 from io import BytesIO
 from pathlib import Path
@@ -253,9 +253,10 @@ class PannableArea():
 
         # Keep track of content position
         # Cannot use `get_item_rect_min`, since imgui.image hasn't been drawn yet
-        rmin = imgui.get_window_content_region_min()
-        wmin = imgui.get_window_position()
-        self.output_pos_tl[:] = (wmin.x + rmin.x, wmin.y + rmin.y)
+        abs_min = imgui.get_cursor_screen_pos()
+        #rmin = imgui.get_window_content_region_min()
+        #wmin = imgui.get_window_position()
+        self.output_pos_tl[:] = abs_min #(wmin.x + rmin.x, wmin.y + rmin.y)
         self.tex_w = tW
         self.tex_h = tH
         self.pan_enabled = pan_enabled
@@ -504,7 +505,7 @@ class PannableArea():
         # Do nothing unless in foreground
         if imgui.get_io().want_capture_mouse:
             return
-        
+
         if imgui.is_mouse_clicked(0) and self.mouse_hovers_content():
             u, v = self.get_hovered_uv_canvas()
             self.pan_start = (u, 1 - v) # convert to y-up
@@ -607,19 +608,21 @@ def imgui_item_width(size):
 # Full screen imgui window
 def begin_inline(name, inputs=True):
     flags = 0
-    flags |= imgui.WINDOW_NO_TITLE_BAR
-    flags |= imgui.WINDOW_NO_RESIZE
-    flags |= imgui.WINDOW_NO_MOVE
-    flags |= imgui.WINDOW_NO_COLLAPSE
-    flags |= imgui.WINDOW_NO_SCROLLBAR
-    flags |= imgui.WINDOW_NO_SAVED_SETTINGS
+    flags |= imgui.WindowFlags_.no_title_bar
+    flags |= imgui.WindowFlags_.no_resize
+    flags |= imgui.WindowFlags_.no_move
+    flags |= imgui.WindowFlags_.no_collapse
+    flags |= imgui.WindowFlags_.no_scrollbar
+    flags |= imgui.WindowFlags_.no_saved_settings
     
     # No mouse interaction, but io.want_capture_mouse won't trigger
     if not inputs:
-        flags |= imgui.WINDOW_NO_INPUTS
+        #flags |= imgui.WindowFlags_.no_inputs
+        flags |= imgui.WindowFlags_.no_mouse_inputs
     
-    with imgui.styled(imgui.STYLE_WINDOW_ROUNDING, 0):
-        imgui.begin(name, flags=flags)
+    imgui.push_style_var(imgui.StyleVar_.window_rounding, 0)
+    imgui.begin(name, flags=flags)
+    imgui.pop_style_var()
 
 # Recursive getattr
 def rgetattr(obj, key, default=None):
@@ -668,7 +671,7 @@ def slider_range_int(v1, v2, vmin, vmax, push=False, title='', width=0.0):
 # Float2 slider that prevents overlap
 def slider_range_float(v1, v2, vmin, vmax, push=False, title='', width=0.0):
     with imgui_item_width(width):
-        ch, (s, e) = imgui.slider_float2(title, v1, v2, vmin, vmax)
+        ch, (s, e) = imgui.slider_float2(title, (v1, v2), vmin, vmax)
 
     if push:
         return ch, (min(s, e), max(s, e))

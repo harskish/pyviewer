@@ -2,6 +2,7 @@
 # Original by Pauli Kemppinen (https://github.com/msqrt)
 # Modified by Erik Härkönen
 
+from functools import lru_cache
 import numpy as np
 import multiprocessing as mp
 from pathlib import Path
@@ -11,10 +12,15 @@ from sys import platform
 from contextlib import contextmanager, nullcontext
 from platform import uname
 
-import imgui.core
-import imgui.plot as implot
-from imgui.integrations.glfw import GlfwRenderer
+from imgui_bundle import imgui, implot
+#import imgui.core
+#import imgui.plot as implot
+from imgui_bundle.python_backends.glfw_backend import GlfwRenderer
+#imgui_bundle/bindings/imgui_bundle/python_backends/glfw_backend.py
+#from imgui.integrations.glfw import GlfwRenderer
+
 from .imgui_themes import theme_deep_dark
+
 from .utils import normalize_image_data
 
 import glfw
@@ -407,7 +413,7 @@ class viewer:
         handle = imgui.get_io().fonts
         self._imgui_fonts = {
             size: handle.add_font_from_file_ttf(font, size,
-                glyph_ranges=handle.get_glyph_ranges_chinese_full()) for size in font_sizes
+                glyph_ranges_as_int_list=handle.get_glyph_ranges_chinese_full()) for size in font_sizes
         }
 
         # TODO: add scale field to font?
@@ -546,12 +552,15 @@ class viewer:
             glfw.set_window_monitor(self._window, None, \
                 self.window_pos[0], posy, self._width, self._height, params.refresh_rate)
 
+    @lru_cache(maxsize=1) # only run if params change
     def set_default_style(self, color_scheme='dark', spacing=9, indent=23, scrollbar=27):
         #theme_custom()        
         #theme_dark_overshifted()
         #theme_ps()
         theme_deep_dark()
         #theme_contrast()
+
+        print('Setting imgui style')
         
         # Overrides based on UI scale / font size
         s = imgui.get_style()
@@ -562,9 +571,9 @@ class viewer:
         s.indent_spacing        = indent
         s.scrollbar_size        = scrollbar
 
-        c0 = s.colors[imgui.COLOR_MENUBAR_BACKGROUND]
-        c1 = s.colors[imgui.COLOR_FRAME_BACKGROUND]
-        s.colors[imgui.COLOR_POPUP_BACKGROUND] = [x * 0.7 + y * 0.3 for x, y in zip(c0, c1)][:3] + [1]
+        c0 = s.color_(imgui.Col_.menu_bar_bg)
+        c1 = s.color_(imgui.Col_.frame_bg)
+        s.set_color_(imgui.Col_.popup_bg, c0 * 0.7 + c1 * 0.3) # force alpha one?
 
     def gl_shutdown(self):
         """
@@ -604,7 +613,7 @@ class viewer:
             else:
                 if key in self._pressed_keys:
                     self._pressed_keys.remove(key)
-            self.renderer.keyboard_callback(window, key, None, action, mods)
+            self.renderer.mouse_button_callback(window, key, action, mods)
 
         glfw.set_key_callback(self._window, on_key)
         glfw.set_mouse_button_callback(self._window, on_mouse_button)
