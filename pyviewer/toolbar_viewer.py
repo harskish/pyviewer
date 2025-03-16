@@ -176,7 +176,12 @@ class ToolbarViewer:
 
         s = v.ui_scale
 
-        begin_inline('Output', inputs=False)
+        # Texture handle to main image
+        # If image is missing: assume fullscreen plot, don't block mouse events
+        tex_in = v._images.get(self.output_key)
+        mouse_events = tex_in is None
+
+        begin_inline('Output', inputs=mouse_events)
         
         # Calculate size of current (virtual) imgui.window
         cW, cH = map(int, imgui.get_content_region_avail())
@@ -195,7 +200,6 @@ class ToolbarViewer:
         self.draw_pre()
         
         # Create imgui.image from provided data
-        tex_in = v._images.get(self.output_key)
         if tex_in is not None:
             canvas_size = (cW, cH)
             tex = self.pan_handler.draw_to_canvas(tex_in.tex, tex_in.shape[1], tex_in.shape[0], *canvas_size, self.pan_enabled)
@@ -248,7 +252,7 @@ class ToolbarViewer:
                     resH = int(self.img_shape[1] * float(s))
                     glfw.set_window_size(v._window,
                         width=resW+W-cW, height=resH+H-cH+BOTTOM_PAD) # TODO probably wrong
-                else:
+                elif tex_in is not None: # do nothing if no image (fullscreen plot etc.)
                     # Set zoom level
                     sw = self.pan_handler.canvas_w / self.pan_handler.tex_w
                     sh = self.pan_handler.canvas_h / self.pan_handler.tex_h

@@ -1,9 +1,8 @@
 from pathlib import Path
 import numpy as np
 import pyviewer
-import imgui
+from imgui_bundle import imgui
 from enum import Enum
-from pyviewer import single_image_viewer as siv
 from pyviewer.utils import combo_box_vals
 from functools import lru_cache
 from io import BytesIO
@@ -21,7 +20,7 @@ assert Path(pyviewer.__file__).parents[1] == Path(__file__).parents[1], \
     'Not running local editable install, please run "pip install --force-reinstall -e ."'
 
 @lru_cache
-def build_siemens_star(origin=(0, 0), radius=1, n=100, DPI=400):
+def _build_siemens_star_unscaled(origin=(0, 0), radius=1, n=100, DPI=600, width=1024, height=1024):
     centres = np.linspace(0, 360, n+1)[:-1]
     step = (((360.0)/n)/4.0)
     patches = []
@@ -39,11 +38,17 @@ def build_siemens_star(origin=(0, 0), radius=1, n=100, DPI=400):
     fig.savefig(io_buf, format='raw', dpi=DPI)
     io_buf.seek(0)
     img_arr = np.reshape(np.frombuffer(io_buf.getvalue(), dtype=np.uint8),
-        newshape=(int(fig.bbox.bounds[3]), int(fig.bbox.bounds[2]), -1))
+        shape=(int(fig.bbox.bounds[3]), int(fig.bbox.bounds[2]), -1))
     io_buf.close()
     print('Siemens start shape:', img_arr.shape)
 
     return img_arr
+
+@lru_cache
+def build_siemens_star(origin=(0, 0), radius=1, n=100, DPI=600, width=1024, height=1024):
+    img_arr = _build_siemens_star_unscaled(origin, radius, n, DPI)
+    img = Image.fromarray(img_arr).convert('RGB').resize((width, height), resample=Image.LANCZOS)
+    return np.array(img)
 
 #siv.init('Async viewer', hidden=False)
 
@@ -66,7 +71,11 @@ conf_mbp = {
     0: dict(auto_res=False, width=1212, height=1212, win_w=1154, win_h=638, ui_scale=1.333, zoom=2.13756609, tx=0.00000000, ty=0.00000000),
 }
 
-configs = { 'Debu': conf_debu, 'Eriks-MacBook-Pro.local': conf_mbp }[socket.gethostname()]
+default_conf = {
+    0: dict(auto_res=True, width=512, height=512, win_w=1600, win_h=1024, ui_scale=1.667, zoom=1, tx=1.068e-05, ty=1.068e-05)
+}
+
+configs = { 'Debu': conf_debu, 'Eriks-MacBook-Pro.local': conf_mbp }.get(socket.gethostname(), default_conf)
 
 from pyviewer.toolbar_viewer import ToolbarViewer
 class Test(ToolbarViewer):
@@ -89,9 +98,7 @@ class Test(ToolbarViewer):
             case PATTERNS.GRID:
                 img[::2, ::2, :] = 255
             case PATTERNS.STAR:
-                img = Image.fromarray(build_siemens_star()) \
-                    .resize((self.width, self.height), resample=Image.LANCZOS)
-                img = np.array(img)
+                img = build_siemens_star(width=self.width, height=self.height)
             case _:
                 img[:, :, :] = np.array([255, 255, 0])
 

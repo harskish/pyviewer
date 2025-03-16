@@ -1,9 +1,9 @@
 from pathlib import Path
 import numpy as np
-import array
 import pyviewer # pip install -e .
-import imgui
+from imgui_bundle import imgui, implot
 from pyviewer import single_image_viewer as siv
+from pyviewer.toolbar_viewer import ToolbarViewer
 
 has_torch = False
 try:
@@ -16,22 +16,13 @@ except:
 assert Path(pyviewer.__file__).parents[1] == Path(__file__).parents[1], \
     'Not running local editable install, please run "pip install --force-reinstall -e ."'
 
-def toarr(a: np.ndarray):
-    #return array.array(a.dtype.char, a)                # 8.45ms
-    #return array.array(a.dtype.char, a.tobytes())      # 0.23ms
-    #return array.array(a.dtype.char, bytearray(a))     # 0.10ms
-    return array.array(a.dtype.char, bytearray(a.data)) # 0.10ms
-
 N = 50_000
 x = np.linspace(0, 4*np.pi, N)
 y = 2*np.cos(x)
 
-x = toarr(x)
-y = toarr(y)
-
 siv.init('Async viewer', hidden=True)
 
-class Test(pyviewer.toolbar_viewer.ToolbarViewer):
+class Test(ToolbarViewer):
     def setup_state(self):
         self.state.seed = 0
         self.state.img = None
@@ -71,9 +62,9 @@ class Test(pyviewer.toolbar_viewer.ToolbarViewer):
     
     def draw_toolbar(self):
         self.state.seed = imgui.slider_int('Seed', self.state.seed, 0, 1000)[1]
-        if imgui.plot.begin_plot('Plot'):
-            imgui.plot.plot_line2('2cos(x)', x, y, N)
-            imgui.plot.end_plot()
+        if implot.begin_plot('Plot'):
+            implot.plot_line('2cos(x)', x, y)
+            implot.end_plot()
         
         imgui.separator()
         imgui.text('Async viewer: separate process,\nwon\'t freeze if breakpoint is hit.')
