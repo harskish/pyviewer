@@ -16,6 +16,9 @@ def to_snake_case(name: str) -> str:
 
     return name.lower()
 
+# Color preview:
+# 1. install vscode extension 'json-color-token'
+# 2. set value "jsonColorToken.languages": ["json", "jsonc", "python"]
 def color(hex: str):
     hex = hex.lower().lstrip('#')
     if len(hex) == 6:

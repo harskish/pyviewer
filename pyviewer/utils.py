@@ -17,14 +17,21 @@ from platform import system
 import OpenGL.GL as gl
 import ctypes
 
-# ImGui widget that wraps arbitrary object and allows mouse pand & zoom controls.
+# ImGui widget that wraps an image and allows mouse pand & zoom controls.
 # Does not transform texture coordinates; instead transforms a single textured quad.
 # Panning produces no temporal aliasing: the pan follows the mouse, which moves in one pixel increments.
 class PannableArea():
-    def __init__(self, set_callbacks=False, glfw_window=False) -> None:  # draw_content: callable, 
-        self.prev_cbk: callable = lambda : None  # for chaining
+    def __init__(self, glfw_window=None, force_mouse_capture=False) -> None:  # draw_content: callable, 
+        """
+        ImGui widget that wraps an image and allows mouse pand & zoom controls.
+        Args:
+            glfw_window: if None, need to call set_callbacks() manually before use
+            force_mouse_capture: if True, ignore imgui.io.want_capture_mouse
+        """
+        self.prev_scroll_cbk: callable = lambda : None  # for chaining
         self.output_pos_tl = np.zeros(2, dtype=np.float32)
         self.id = ''.join(random.choices(string.ascii_letters, k=20))
+        self.force_mouse = force_mouse_capture
         self.is_panning = False # currently panning?
         self.pan_enabled = True
         self.zoom_enabled = True
@@ -55,8 +62,7 @@ class PannableArea():
         self.tex_h = 0
         self.tex_w = 0
 
-        if set_callbacks:
-            assert glfw_window, 'Must provide glfw window for callback setting'
+        if glfw_window is not None:
             self.set_callbacks(glfw_window)
 
         # Precopute a few transformations
@@ -304,7 +310,10 @@ class PannableArea():
         return self.canvas_tex
 
     def set_callbacks(self, glfw_window):
-        self.prev_cbk = glfw.set_scroll_callback(glfw_window, self.mouse_wheel_callback)
+        self.prev_scroll_cbk = glfw.set_scroll_callback(glfw_window, self.mouse_wheel_callback)
+        if self.prev_scroll_cbk is None:
+            print('No previous scroll callback')
+            self.prev_scroll_cbk = lambda *args: None
     
     def get_transform(self):
         """
@@ -501,9 +510,9 @@ class PannableArea():
         self.is_panning = False
     
     # Handle pan action
-    def handle_pan(self):
+    def handle_pan(self):        
         # Do nothing unless in foreground
-        if imgui.get_io().want_capture_mouse:
+        if not self.force_mouse and imgui.get_io().want_capture_mouse:
             return
 
         if imgui.is_mouse_clicked(0) and self.mouse_hovers_content():
@@ -540,8 +549,11 @@ class PannableArea():
         return (0 <= x <= 1) and (0 <= y <= 1)
     
     def mouse_wheel_callback(self, window, x, y) -> None:
-        if imgui.get_io().want_capture_mouse or not (self.mouse_hovers_content() and self.zoom_enabled):
-            return self.prev_cbk(window, x, y) # scroll imgui lists etc.
+        if not self.force_mouse and imgui.get_io().want_capture_mouse:
+            return self.prev_scroll_cbk(window, x, y) # scroll imgui lists etc.
+
+        if not (self.mouse_hovers_content() and self.zoom_enabled):
+            return self.prev_scroll_cbk(window, x, y)
         
         # MacOS trackpad needs separate speed
         speed = 0.035 if system() == 'Darwin' else 0.15
