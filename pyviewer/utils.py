@@ -87,7 +87,24 @@ class PannableArea():
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, self.canvas_interp)
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, self.canvas_interp)
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
-
+    
+    def set_output_scale(self, scale: float):
+        """
+        Set scale at which image will be rendered.
+        Integer values signify native resolutions without interpolation.
+        """
+        sw = self.canvas_w / self.tex_w
+        sh = self.canvas_h / self.tex_h
+        self.zoom = float(scale) / min(sw, sh)
+    
+    def snap_nearest_fractional_scale(self):
+        sw = self.canvas_w / self.tex_w
+        sh = self.canvas_h / self.tex_h
+        curr_scale = self.zoom * min(sw, sh)
+        best = round(curr_scale) if curr_scale >= 0.75 else 1 / round(1 / curr_scale)
+        self.zoom = best / min(sw, sh)
+        print('Scale set to:', f'1/{1/best:.0f}x' if best < 1 else f'{best:.0f}x')
+    
     def resize_canvas(self, W, H):
         if self.canvas_w == W and self.canvas_h == H:
             return
@@ -528,6 +545,8 @@ class PannableArea():
             self.is_panning = False
         if imgui.is_mouse_double_clicked(0) and self.mouse_hovers_content(): # reset view
             self.reset_xform()
+        if imgui.is_mouse_clicked(1) and self.mouse_hovers_content(): # right click: native res
+            self.snap_nearest_fractional_scale()
     
     @property
     def mouse_pos_abs(self):

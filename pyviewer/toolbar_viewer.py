@@ -253,11 +253,7 @@ class ToolbarViewer:
                     glfw.set_window_size(v._window,
                         width=resW+W-cW, height=resH+H-cH+BOTTOM_PAD) # TODO probably wrong
                 elif tex_in is not None: # do nothing if no image (fullscreen plot etc.)
-                    # Set zoom level
-                    sw = self.pan_handler.canvas_w / self.pan_handler.tex_w
-                    sh = self.pan_handler.canvas_h / self.pan_handler.tex_h
-                    scale = float(s) / min(sw, sh)
-                    self.pan_handler.zoom = scale
+                    self.pan_handler.set_output_scale(s)
 
         imgui.columns(1)
 
