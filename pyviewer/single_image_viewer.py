@@ -134,7 +134,7 @@ class SingleImageViewer:
         v = gl_viewer.viewer(self.title, swap_interval=int(self.vsync), hidden=self.hidden.value)
         v._window_hidden = self.hidden.value
         v.set_interp_nearest()
-        v.pan_handler = PannableArea()
+        v.pan_handler = PannableArea(force_mouse_capture=True)
         compute_thread = Thread(target=self.compute, args=[v])
 
         def set_glfw_callbacks(window):
@@ -253,7 +253,7 @@ class SingleImageViewer:
 
         imgui.set_next_window_size(glfw.get_window_size(v._window))
         imgui.set_next_window_pos((0, 0))
-        begin_inline('Output', inputs=False)
+        begin_inline('Output', inputs=True)
         
         viz_mode = VizMode(self.viz_mode.value)
 
@@ -287,13 +287,13 @@ class SingleImageViewer:
             style = imgui.get_style()
             avail_h = H - 2*style.window_padding.y
             avail_w = W - 2*style.window_padding.x
-            implot.begin_plot('', size=(avail_w, avail_h))
-            if viz_mode in [VizMode.PLOT_LINE, VizMode.PLOT_LINE_DOT]:
-                implot.plot_line('', x, y)
-            if viz_mode in [VizMode.PLOT_DOT, VizMode.PLOT_LINE_DOT]:
-                implot.set_next_marker_style(size=self.plot_marker_size.value)
-                implot.plot_scatter('', x, y)
-            implot.end_plot()
+            if implot.begin_plot('##siv_main_plot', size=(avail_w, avail_h)):
+                if viz_mode in [VizMode.PLOT_LINE, VizMode.PLOT_LINE_DOT]:
+                    implot.plot_line('', x, y)
+                if viz_mode in [VizMode.PLOT_DOT, VizMode.PLOT_LINE_DOT]:
+                    implot.set_next_marker_style(size=self.plot_marker_size.value)
+                    implot.plot_scatter('', x, y)
+                implot.end_plot()
 
         if self.paused.value:
             imgui.push_font(v._imgui_fonts[30])
