@@ -409,27 +409,3 @@ class AutoUIViewer(ToolbarViewer):
             if not isinstance(cont, ParamContainer):
                 continue
             draw_container(cont, reset_button=True)
-
-#--------------
-# Example usage
-
-def main():
-    import numpy as np
-    
-    class Test(ToolbarViewer):
-        def setup_state(self):
-            self.state.seed = 0
-        
-        def compute(self):
-            rand = np.random.RandomState(seed=self.state.seed)
-            img = rand.randn(256, 256, 3).astype(np.float32)
-            return np.clip(img, 0, 1) # HWC
-        
-        def draw_toolbar(self):
-            self.state.seed = imgui.slider_int('Seed', self.state.seed, 0, 1000)[1]
-
-    _ = Test('test_viewer')
-    print('Done')
-
-if __name__ == '__main__':
-    main()

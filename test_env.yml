@@ -2,16 +2,14 @@ name: pyviewer
 channels:
   - defaults
 dependencies:
-  - python=3.11
-  - pip=22.3
+  - python=3.12
+  - pip=23.3
   - pip:
-    - --extra-index-url https://download.pytorch.org/whl/cu116
-    - torch==1.13.1+cu116; sys_platform != "darwin"
-    - torch==1.13.*; sys_platform == "darwin"
-    - ninja==1.11.*
-    - Pillow
-    - matplotlib
-    - -e .
-    - https://download.lfd.uci.edu/pythonlibs/archived/pycuda-2022.1+cuda116-cp310-cp310-win_amd64.whl; sys_platform == "win32"
+    - Pillow==11.1.0
+    - matplotlib==3.10.1
+    - -e .  # pyviewer itself
+    - --extra-index-url https://download.pytorch.org/whl/cu124
+    - torch==2.6.0
 
-# conda env create --force --file test_env.yml
+# conda env create -f test_env.yml
+# conda env update -f test_env.yml

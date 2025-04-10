@@ -19,6 +19,14 @@
             "program": "${workspaceFolder}/examples/scaling_test.py",
             "console": "integratedTerminal",
             "justMyCode": false
+        },
+        {
+            "name": "Docking viewer demo",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/demo_docking_viewer.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
         }
     ]
 }

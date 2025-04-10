@@ -6,8 +6,8 @@ import numpy as np
 import random
 import string
 import time
-import glfw
 from imgui_bundle import imgui, implot
+import glfw
 import ctypes
 import sys
 import warnings

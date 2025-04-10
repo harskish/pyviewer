@@ -8,16 +8,16 @@ import multiprocessing as mp
 from pathlib import Path
 from threading import get_ident
 from typing import Dict
+import sys
 from sys import platform
 from contextlib import contextmanager, nullcontext
 from platform import uname
 
+# Some callbacks broken if imported before imgui_bundle...??
+assert 'glfw' not in sys.modules or 'imgui_bundle' in sys.modules, 'glfw should be imported after pyviewer'
+
 from imgui_bundle import imgui, implot
-#import imgui.core
-#import imgui.plot as implot
 from imgui_bundle.python_backends.glfw_backend import GlfwRenderer
-#imgui_bundle/bindings/imgui_bundle/python_backends/glfw_backend.py
-#from imgui.integrations.glfw import GlfwRenderer
 
 from .imgui_themes import *
 
