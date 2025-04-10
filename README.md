@@ -21,13 +21,14 @@ siv.plot(np.sin(2*np.pi*np.linspace(0, 1, 10_000)))
 A viewer that shows ImGui UI elemets on the left, and a large image on the right. Runs in the main process, but supports visualizing torch tensors directly from GPU memory (unlike single_image_viewer).
 
 ## Other features
-* Bundles a [custom build](https://github.com/harskish/pyplotgui) of PyImGui with plotting support (via ImPlot)
+* Makes use of [imgui-bundle](https://github.com/pthom/imgui_bundle) to provide plotting support and other extras
 * Dynamically rescalable user interface
 * Window resizing to integer multiple of content resolution
 * Pan and zoom of the main image
 
 ## Installation
-`pip install pyviewer`
+Install with `pip install pyviewer`. <br>
+Pre-built wheels available for **CPython 3.11+**
 
 ## Usage
 See `examples/demo.py` for a usage example.

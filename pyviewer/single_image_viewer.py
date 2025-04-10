@@ -6,20 +6,12 @@ import numpy as np
 import random
 import string
 import time
+from imgui_bundle import imgui, implot
 import glfw
-import imgui
 import ctypes
 import sys
 import warnings
-import array
 from enum import Enum
-
-# Check imgui version
-import imgui
-implot = getattr(imgui, 'plot', None)
-assert implot, \
-    'Pyviewer requires a custom version of imgui that comes bundled with implot (github.com/harskish/pyimgui).\n' + \
-    'Please reinstall pyviewer to get the correct version.'
 
 has_torch = False
 try:
@@ -142,7 +134,7 @@ class SingleImageViewer:
         v = gl_viewer.viewer(self.title, swap_interval=int(self.vsync), hidden=self.hidden.value)
         v._window_hidden = self.hidden.value
         v.set_interp_nearest()
-        v.pan_handler = PannableArea()
+        v.pan_handler = PannableArea(force_mouse_capture=True)
         compute_thread = Thread(target=self.compute, args=[v])
 
         def set_glfw_callbacks(window):
@@ -259,9 +251,9 @@ class SingleImageViewer:
         if v.keyhit(glfw.KEY_M):
             self.viz_mode.value = (self.viz_mode.value + 1) % len(VizMode) # loop through modes
 
-        imgui.set_next_window_size(*glfw.get_window_size(v._window))
-        imgui.set_next_window_position(0, 0)
-        begin_inline('Output', inputs=False)
+        imgui.set_next_window_size(glfw.get_window_size(v._window))
+        imgui.set_next_window_pos((0, 0))
+        begin_inline('Output', inputs=True)
         
         viz_mode = VizMode(self.viz_mode.value)
 
@@ -272,12 +264,13 @@ class SingleImageViewer:
                 tex_in = v._images.get(self.key)
                 if tex_in:
                     tex_H, tex_W, _ = tex_in.shape
-                    cW, cH = [int(r-l) for l,r in zip(
-                        imgui.get_window_content_region_min(), imgui.get_window_content_region_max())]
+                    cW, cH = map(int, imgui.get_content_region_avail())
+                    #cW, cH = [int(r-l) for l,r in zip(
+                    #    imgui.get_window_content_region_min(), imgui.get_window_content_region_max())]
                     scale = min(cW / tex_W, cH / tex_H)
                     out_res = (int(tex_W*scale), int(tex_H*scale))
                     tex = v.pan_handler.draw_to_canvas(tex_in.tex, *out_res, cW, cH)
-                    imgui.image(tex, cW, cH)
+                    imgui.image(tex, (cW, cH))
             else:
                 v.draw_image(self.key, width='fit')
         
@@ -294,20 +287,18 @@ class SingleImageViewer:
             style = imgui.get_style()
             avail_h = H - 2*style.window_padding.y
             avail_w = W - 2*style.window_padding.x
-            implot.begin_plot('', size=(avail_w, avail_h))
-            arr_x = array.array('f', bytearray(x))
-            arr_y = array.array('f', bytearray(y))
-            if viz_mode in [VizMode.PLOT_LINE, VizMode.PLOT_LINE_DOT]:
-                implot.plot_line2('', arr_x, arr_y, len(x))
-            if viz_mode in [VizMode.PLOT_DOT, VizMode.PLOT_LINE_DOT]:
-                implot.set_next_marker_style(size=self.plot_marker_size.value)
-                implot.plot_scatter2('', arr_x, arr_y, len(x))
-            implot.end_plot()
+            if implot.begin_plot('##siv_main_plot', size=(avail_w, avail_h)):
+                if viz_mode in [VizMode.PLOT_LINE, VizMode.PLOT_LINE_DOT]:
+                    implot.plot_line('', x, y)
+                if viz_mode in [VizMode.PLOT_DOT, VizMode.PLOT_LINE_DOT]:
+                    implot.set_next_marker_style(size=self.plot_marker_size.value)
+                    implot.plot_scatter('', x, y)
+                implot.end_plot()
 
         if self.paused.value:
             imgui.push_font(v._imgui_fonts[30])
             dl = imgui.get_window_draw_list()
-            dl.add_rect_filled(5, 8, 115, 43, imgui.get_color_u32_rgba(0,0,0,1))
+            dl.add_rect_filled((5, 8), (115, 43), imgui.get_color_u32_rgba(0,0,0,1))
             dl.add_text(20, 10, imgui.get_color_u32_rgba(1,1,1,1), 'PAUSED')
             imgui.pop_font()
             time.sleep(1/20) # <= real speedup of pausing comes from here

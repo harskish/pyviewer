@@ -1,5 +1,5 @@
 import numpy as np
-import imgui
+from imgui_bundle import imgui
 import contextlib
 from io import BytesIO
 from pathlib import Path
@@ -17,14 +17,21 @@ from platform import system
 import OpenGL.GL as gl
 import ctypes
 
-# ImGui widget that wraps arbitrary object and allows mouse pand & zoom controls.
+# ImGui widget that wraps an image and allows mouse pand & zoom controls.
 # Does not transform texture coordinates; instead transforms a single textured quad.
 # Panning produces no temporal aliasing: the pan follows the mouse, which moves in one pixel increments.
 class PannableArea():
-    def __init__(self, set_callbacks=False, glfw_window=False) -> None:  # draw_content: callable, 
-        self.prev_cbk: callable = lambda : None  # for chaining
+    def __init__(self, glfw_window=None, force_mouse_capture=False) -> None:  # draw_content: callable, 
+        """
+        ImGui widget that wraps an image and allows mouse pand & zoom controls.
+        Args:
+            glfw_window: if None, need to call set_callbacks() manually before use
+            force_mouse_capture: if True, ignore imgui.io.want_capture_mouse
+        """
+        self.prev_scroll_cbk: callable = lambda : None  # for chaining
         self.output_pos_tl = np.zeros(2, dtype=np.float32)
         self.id = ''.join(random.choices(string.ascii_letters, k=20))
+        self.force_mouse = force_mouse_capture
         self.is_panning = False # currently panning?
         self.pan_enabled = True
         self.zoom_enabled = True
@@ -55,8 +62,7 @@ class PannableArea():
         self.tex_h = 0
         self.tex_w = 0
 
-        if set_callbacks:
-            assert glfw_window, 'Must provide glfw window for callback setting'
+        if glfw_window is not None:
             self.set_callbacks(glfw_window)
 
         # Precopute a few transformations
@@ -81,7 +87,24 @@ class PannableArea():
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, self.canvas_interp)
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, self.canvas_interp)
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
-
+    
+    def set_output_scale(self, scale: float):
+        """
+        Set scale at which image will be rendered.
+        Integer values signify native resolutions without interpolation.
+        """
+        sw = self.canvas_w / self.tex_w
+        sh = self.canvas_h / self.tex_h
+        self.zoom = float(scale) / min(sw, sh)
+    
+    def snap_nearest_fractional_scale(self):
+        sw = self.canvas_w / self.tex_w
+        sh = self.canvas_h / self.tex_h
+        curr_scale = self.zoom * min(sw, sh)
+        best = round(curr_scale) if curr_scale >= 0.75 else 1 / round(1 / curr_scale)
+        self.zoom = best / min(sw, sh)
+        print('Scale set to:', f'1/{1/best:.0f}x' if best < 1 else f'{best:.0f}x')
+    
     def resize_canvas(self, W, H):
         if self.canvas_w == W and self.canvas_h == H:
             return
@@ -253,9 +276,10 @@ class PannableArea():
 
         # Keep track of content position
         # Cannot use `get_item_rect_min`, since imgui.image hasn't been drawn yet
-        rmin = imgui.get_window_content_region_min()
-        wmin = imgui.get_window_position()
-        self.output_pos_tl[:] = (wmin.x + rmin.x, wmin.y + rmin.y)
+        abs_min = imgui.get_cursor_screen_pos()
+        #rmin = imgui.get_window_content_region_min()
+        #wmin = imgui.get_window_position()
+        self.output_pos_tl[:] = abs_min #(wmin.x + rmin.x, wmin.y + rmin.y)
         self.tex_w = tW
         self.tex_h = tH
         self.pan_enabled = pan_enabled
@@ -303,7 +327,10 @@ class PannableArea():
         return self.canvas_tex
 
     def set_callbacks(self, glfw_window):
-        self.prev_cbk = glfw.set_scroll_callback(glfw_window, self.mouse_wheel_callback)
+        self.prev_scroll_cbk = glfw.set_scroll_callback(glfw_window, self.mouse_wheel_callback)
+        if self.prev_scroll_cbk is None:
+            print('No previous scroll callback')
+            self.prev_scroll_cbk = lambda *args: None
     
     def get_transform(self):
         """
@@ -500,11 +527,11 @@ class PannableArea():
         self.is_panning = False
     
     # Handle pan action
-    def handle_pan(self):
+    def handle_pan(self):        
         # Do nothing unless in foreground
-        if imgui.get_io().want_capture_mouse:
+        if not self.force_mouse and imgui.get_io().want_capture_mouse:
             return
-        
+
         if imgui.is_mouse_clicked(0) and self.mouse_hovers_content():
             u, v = self.get_hovered_uv_canvas()
             self.pan_start = (u, 1 - v) # convert to y-up
@@ -518,6 +545,8 @@ class PannableArea():
             self.is_panning = False
         if imgui.is_mouse_double_clicked(0) and self.mouse_hovers_content(): # reset view
             self.reset_xform()
+        if imgui.is_mouse_clicked(1) and self.mouse_hovers_content(): # right click: native res
+            self.snap_nearest_fractional_scale()
     
     @property
     def mouse_pos_abs(self):
@@ -539,8 +568,11 @@ class PannableArea():
         return (0 <= x <= 1) and (0 <= y <= 1)
     
     def mouse_wheel_callback(self, window, x, y) -> None:
-        if imgui.get_io().want_capture_mouse or not (self.mouse_hovers_content() and self.zoom_enabled):
-            return self.prev_cbk(window, x, y) # scroll imgui lists etc.
+        if not self.force_mouse and imgui.get_io().want_capture_mouse:
+            return self.prev_scroll_cbk(window, x, y) # scroll imgui lists etc.
+
+        if not (self.mouse_hovers_content() and self.zoom_enabled):
+            return self.prev_scroll_cbk(window, x, y)
         
         # MacOS trackpad needs separate speed
         speed = 0.035 if system() == 'Darwin' else 0.15
@@ -607,19 +639,21 @@ def imgui_item_width(size):
 # Full screen imgui window
 def begin_inline(name, inputs=True):
     flags = 0
-    flags |= imgui.WINDOW_NO_TITLE_BAR
-    flags |= imgui.WINDOW_NO_RESIZE
-    flags |= imgui.WINDOW_NO_MOVE
-    flags |= imgui.WINDOW_NO_COLLAPSE
-    flags |= imgui.WINDOW_NO_SCROLLBAR
-    flags |= imgui.WINDOW_NO_SAVED_SETTINGS
+    flags |= imgui.WindowFlags_.no_title_bar
+    flags |= imgui.WindowFlags_.no_resize
+    flags |= imgui.WindowFlags_.no_move
+    flags |= imgui.WindowFlags_.no_collapse
+    flags |= imgui.WindowFlags_.no_scrollbar
+    flags |= imgui.WindowFlags_.no_saved_settings
     
     # No mouse interaction, but io.want_capture_mouse won't trigger
     if not inputs:
-        flags |= imgui.WINDOW_NO_INPUTS
+        #flags |= imgui.WindowFlags_.no_inputs
+        flags |= imgui.WindowFlags_.no_mouse_inputs
     
-    with imgui.styled(imgui.STYLE_WINDOW_ROUNDING, 0):
-        imgui.begin(name, flags=flags)
+    imgui.push_style_var(imgui.StyleVar_.window_rounding, 0)
+    imgui.begin(name, flags=flags)
+    imgui.pop_style_var()
 
 # Recursive getattr
 def rgetattr(obj, key, default=None):
@@ -668,7 +702,7 @@ def slider_range_int(v1, v2, vmin, vmax, push=False, title='', width=0.0):
 # Float2 slider that prevents overlap
 def slider_range_float(v1, v2, vmin, vmax, push=False, title='', width=0.0):
     with imgui_item_width(width):
-        ch, (s, e) = imgui.slider_float2(title, v1, v2, vmin, vmax)
+        ch, (s, e) = imgui.slider_float2(title, (v1, v2), vmin, vmax)
 
     if push:
         return ch, (min(s, e), max(s, e))

@@ -6,7 +6,7 @@
     "configurations": [
         {
             "name": "Demo",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/examples/demo.py",
             "console": "integratedTerminal",
@@ -14,9 +14,17 @@
         },
         {
             "name": "Scaling test",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/examples/scaling_test.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Docking viewer demo",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/demo_docking_viewer.py",
             "console": "integratedTerminal",
             "justMyCode": false
         }

@@ -1,4 +1,4 @@
-import imgui
+from imgui_bundle import imgui
 import glfw
 import threading
 import random
@@ -145,10 +145,10 @@ class ToolbarViewer:
 
     def _ui_main(self, v):
         # Update window title
-        curr = glfw.get_window_title(v._window)
-        if curr != self._window_title:
-            glfw.set_window_title(self.v._window, self._window_title)
-            self._current_window_title = self._window_title
+        
+        #curr = glfw.get_window_title(v._window) # imgui_bundle._glfw must contain symbol
+        #if curr != self._window_title:
+        glfw.set_window_title(self.v._window, self._window_title)
         
         self._toolbar_wrapper()
         self._draw_output()
@@ -171,16 +171,22 @@ class ToolbarViewer:
 
         BOTTOM_PAD = self.pad_bottom
         W, H = glfw.get_window_size(v._window)
-        imgui.set_next_window_size(W - self.toolbar_width, H - self.menu_bar_height - BOTTOM_PAD)
-        imgui.set_next_window_position(self.toolbar_width, self.menu_bar_height)
+        imgui.set_next_window_size((W - self.toolbar_width, H - self.menu_bar_height - BOTTOM_PAD))
+        imgui.set_next_window_pos((self.toolbar_width, self.menu_bar_height))
 
         s = v.ui_scale
 
-        begin_inline('Output', inputs=False)
+        # Texture handle to main image
+        # If image is missing: assume fullscreen plot, don't block mouse events
+        tex_in = v._images.get(self.output_key)
+        mouse_events = tex_in is None
+
+        begin_inline('Output', inputs=mouse_events)
         
         # Calculate size of current (virtual) imgui.window
-        rmin, rmax = imgui.get_window_content_region_min(), imgui.get_window_content_region_max()
-        cW, cH = [int(r-l) for l,r in zip(rmin, rmax)]
+        cW, cH = map(int, imgui.get_content_region_avail())
+        #rmin, rmax = imgui.get_window_content_region_min(), imgui.get_window_content_region_max()
+        #cW, cH = [int(r-l) for l,r in zip(rmin, rmax)]
         
         # Compute size of image that fills smaller dimension
         # Bottom area for integer scaling buttons taken into account
@@ -194,11 +200,10 @@ class ToolbarViewer:
         self.draw_pre()
         
         # Create imgui.image from provided data
-        tex_in = v._images.get(self.output_key)
         if tex_in is not None:
             canvas_size = (cW, cH)
             tex = self.pan_handler.draw_to_canvas(tex_in.tex, tex_in.shape[1], tex_in.shape[0], *canvas_size, self.pan_enabled)
-            imgui.image(tex, *canvas_size)
+            imgui.image(tex, canvas_size) # uv0?
 
         # Imgui.image, i.e. (pannable) canvas, drawn above
         # => get position where it was drawn
@@ -219,39 +224,36 @@ class ToolbarViewer:
         imgui.end()
 
         # New window with inputs for bottom elements
-        imgui.set_next_window_size(W - self.toolbar_width, BOTTOM_PAD)
-        imgui.set_next_window_position(self.toolbar_width, H - BOTTOM_PAD)
+        imgui.set_next_window_size((W - self.toolbar_width, BOTTOM_PAD))
+        imgui.set_next_window_pos((self.toolbar_width, H - BOTTOM_PAD))
         begin_inline('Output below')
         
         # Equal spacing
-        imgui.columns(2, 'outputBottom', border=False)
+        imgui.columns(2, 'outputBottom', borders=False)
 
         # Extra UI elements below output
         self.draw_output_extra()
         imgui.next_column()
 
         # Scaling buttons
-        button_region_width = imgui.get_content_region_available_width()
+        #button_region_width = imgui.get_content_region_available_width()
+        button_region_width = imgui.get_content_region_avail()[0]
 
         sizes = ['0.5', '1', '2', '3', '4', '6']
         button_W = 40 * s
         pad_left = max(0, button_region_width - (button_W * len(sizes)))
 
         for i, s in enumerate(sizes):
-            imgui.same_line(position=pad_left+i*button_W)
-            if imgui.button(f'{s}x', width=button_W-3): # tiny pad
+            imgui.same_line(offset_from_start_x=pad_left+i*button_W)
+            if imgui.button(f'{s}x', (button_W-3, 0)): # tiny pad
                 if not self.pan_enabled:
                     # Resize window
                     resW = int(self.img_shape[2] * float(s))
                     resH = int(self.img_shape[1] * float(s))
                     glfw.set_window_size(v._window,
                         width=resW+W-cW, height=resH+H-cH+BOTTOM_PAD) # TODO probably wrong
-                else:
-                    # Set zoom level
-                    sw = self.pan_handler.canvas_w / self.pan_handler.tex_w
-                    sh = self.pan_handler.canvas_h / self.pan_handler.tex_h
-                    scale = float(s) / min(sw, sh)
-                    self.pan_handler.zoom = scale
+                elif tex_in is not None: # do nothing if no image (fullscreen plot etc.)
+                    self.pan_handler.set_output_scale(s)
 
         imgui.columns(1)
 
@@ -266,34 +268,40 @@ class ToolbarViewer:
             C = [0.8, 0.0, 0.0] if self.ui_locked else [0.0, 1.0, 0.0]
             s = self.v.ui_scale
 
-            imgui.text('') # needed for imgui.same_line
-
             # Custom user menu items
             self.draw_menu()
 
+            # same_line() and negative sizes don't work within menu bar
+            # => use invisible button instead
+            # Tested: 16.3.2025, imgui_bundle==1.6.2
+            max_x = imgui.get_window_width()
+            cursor = imgui.get_cursor_pos()[0]
+
             # UI scale slider
             if not self.ui_locked:
-                imgui.same_line(position=imgui.get_window_width()-300-25*s)
+                pad = max_x - cursor - 300 - 30*s
+                imgui.invisible_button('##hidden', size=(pad, 1))
                 with imgui_item_width(300): # size not dependent on s => prevents slider drift
                     max_scale = max(self.v._imgui_fonts.keys()) / self.v.default_font_size
                     min_scale = min(self.v._imgui_fonts.keys()) / self.v.default_font_size
                     ch, val = imgui.slider_float('', s, min_scale, max_scale)
                 if ch:
                     self.v.set_ui_scale(val)
-
-            imgui.same_line(position=imgui.get_window_width()-25*s)
-            imgui.push_style_color(imgui.COLOR_TEXT, *C)
-            if imgui.button(T, width=20*s):
+            else:
+                pad = max_x - cursor - 25*s
+                imgui.invisible_button('##hidden', size=(pad, 1))
+            
+            imgui.push_style_color(imgui.Col_.text, (*C, 1))
+            if imgui.button(T, size=(20*s, 0)):
                 self.ui_locked = not self.ui_locked
             imgui.pop_style_color()
             imgui.end_main_menu_bar()
-
         
         # Constant width, height dynamic based on output window
         v = self.v
         _, H = glfw.get_window_size(v._window)
-        imgui.set_next_window_size(self.toolbar_width, H - self.menu_bar_height)
-        imgui.set_next_window_position(0, self.menu_bar_height)
+        imgui.set_next_window_size((self.toolbar_width, H - self.menu_bar_height))
+        imgui.set_next_window_pos((0, self.menu_bar_height))
 
         # User callback
         begin_inline('toolbar')
@@ -401,27 +409,3 @@ class AutoUIViewer(ToolbarViewer):
             if not isinstance(cont, ParamContainer):
                 continue
             draw_container(cont, reset_button=True)
-
-#--------------
-# Example usage
-
-def main():
-    import numpy as np
-    
-    class Test(ToolbarViewer):
-        def setup_state(self):
-            self.state.seed = 0
-        
-        def compute(self):
-            rand = np.random.RandomState(seed=self.state.seed)
-            img = rand.randn(256, 256, 3).astype(np.float32)
-            return np.clip(img, 0, 1) # HWC
-        
-        def draw_toolbar(self):
-            self.state.seed = imgui.slider_int('Seed', self.state.seed, 0, 1000)[1]
-
-    _ = Test('test_viewer')
-    print('Done')
-
-if __name__ == '__main__':
-    main()

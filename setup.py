@@ -23,7 +23,7 @@ if 'develop' in sys.argv:
 # or with: `rm -r build\ && pip wheel . && unzip -l pyviewer-*.whl`
 # (not same environment, but good first step)
 setup(name='pyviewer',
-    version='1.7.0',
+    version='2.0.0',
     description='Interactyive python viewers',
     author='Erik Härkönen',
     author_email='erik.harkonen@hotmail.com',
@@ -31,10 +31,11 @@ setup(name='pyviewer',
     packages=['pyviewer'], # name of importable thing
     setup_requires=['wheel'],
     install_requires=[
-        'glfw==2.8.0', # get_window_title in 2.8+
+        'glfw==2.8.0',
         'numpy',
         'pyopengl==3.1.7',
-        'pyplotgui',  # custom imgui+implot package
+        #'pyplotgui',  # custom imgui+implot package
+        'imgui-bundle==1.6.2', # imgui + implot + many others
         'setuptools<=72.1.0', # github.com/pytorch/pytorch/issues/136541
         'light-process==0.0.7',
         'py==1.11.0', # for capturing c++ extension stdout/stderr, part of pytest
