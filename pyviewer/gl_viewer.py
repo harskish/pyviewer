@@ -408,7 +408,7 @@ class viewer:
 
         # MPLUSRounded1c-Medium.ttf: no content for sizes >35
         # Apple M1, WSL have have low texture count limits
-        font_sizes = range(8, 36, 1) if 'win32' in platform else range(8, 36, 2)
+        font_sizes = range(8, 36, 1) if 'win32' in platform else range(9, 36, 2) # make sure to include 15 (default font size)
         font_sizes = [int(s) for s in font_sizes]
         handle = imgui.get_io().fonts
         self._imgui_fonts = {

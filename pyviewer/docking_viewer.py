@@ -94,6 +94,7 @@ class DockingViewer:
     # Can be overridden
     def setup_theme(self):
         theme_deep_dark()
+        self.pan_handler.clear_color = (0.101, 0.101, 0.101, 1.00) # match theme_deep_dark
         s: imgui.Style = imgui.get_style()
         s.window_padding = (3, 3)
         s.tab_rounding = 0
@@ -133,13 +134,72 @@ class DockingViewer:
         if isinstance(key, str):
             key = getattr(glfw, key.upper())
         return self.v.keyhit(key)
+        
+    def scale_style_sizes(self):
+        """More conservative alternative to imgui.get_style().scale_all_sizes()"""
+        factor = self.ui_scale
+        font_size = 9 * factor #self._cur_font_size
+        spacing = round(font_size * 0.3)
+
+        s = imgui.get_style()
+        s.window_padding        = [spacing, spacing]
+        s.item_spacing          = [spacing, spacing]
+        s.item_inner_spacing    = [spacing, spacing]
+        s.columns_min_spacing   = spacing
+        s.indent_spacing        = font_size
+        s.scrollbar_size        = font_size + 4
     
     def _draw_menu_wrapper(self, runner_params: hello_imgui.RunnerParams):
         if self.show_app_menu:
             hello_imgui.show_app_menu(runner_params) # quit button
         if self.show_view_menu:
             hello_imgui.show_view_menu(runner_params) # status bar show/hide, docking layout reset, etc.
+        
+        # User-provided
         self.draw_menu()
+        
+        # UI resize widget
+        
+        # Right-aligned button for locking / unlocking UI
+        T = 'L' if self.ui_locked else 'U'
+        C = [0.8, 0.0, 0.0] if self.ui_locked else [0.0, 1.0, 0.0]
+        s = self.ui_scale
+
+        # same_line() and negative sizes don't work within menu bar
+        # => use invisible button instead
+        # Tested: 16.3.2025, imgui_bundle==1.6.2
+        max_x = imgui.get_window_width()
+        cursor = imgui.get_cursor_pos()[0]
+
+        # UI scale slider
+        if not self.ui_locked:
+            pad = max_x - cursor - 300 - 30*s
+            imgui.invisible_button('##hidden', size=(pad, 1))
+            max_scale = 5
+            min_scale = 0.1
+            #max_scale = max(self.v._imgui_fonts.keys()) / self.v.default_font_size
+            #min_scale = min(self.v._imgui_fonts.keys()) / self.v.default_font_size
+            
+            imgui.set_next_item_width(300) # size not dependent on s => prevents slider drift
+            ch, val = imgui.slider_float('', s, min_scale, max_scale, format="%.1f")
+            if imgui.is_item_hovered():
+                if imgui.is_mouse_clicked(imgui.MouseButton_.right):
+                    (ch, val) = (True, 1.0)
+            
+            if ch:
+                #self.set_ui_scale(val)
+                delta = val / self.ui_scale
+                self.ui_scale = val
+                self.scale_style_sizes() #imgui.get_style().scale_all_sizes(delta)
+                imgui.get_io().font_global_scale = val * self.initial_font_scale # should reload fonts + rebuild font atlas for sharp results
+        else:
+            pad = max_x - cursor - 25*s
+            imgui.invisible_button('##hidden', size=(pad, 1))
+        
+        imgui.push_style_color(imgui.Col_.text, (*C, 1))
+        if imgui.button(T, size=(20*s, 0)):
+            self.ui_locked = not self.ui_locked
+        imgui.pop_style_color()
     
     def __init__(self, name: str):
         # Start compute thread asap
@@ -161,10 +221,13 @@ class DockingViewer:
         # but docking (presumably) seems to be capturing mouse input regardless.
         self.pan_handler = PannableArea(force_mouse_capture=True)
         self.ui_scale = 1.0
+        self.ui_locked = True # resize in progress?
+        self.initial_font_scale = 1.0
         self.image: np.ndarray = None
         self.img_dt: float = 0
         self.last_upload_dt: float = 0
         self.tex_handle: _texture = None # created after GL init
+        self.state = EasyDict()
         
         self.title_font: imgui.ImFont = None
         self.color_font: imgui.ImFont = None
@@ -173,8 +236,8 @@ class DockingViewer:
         self.window: glfw._GLFWwindow = None
         
         def post_init_fun():
+            self.initial_font_scale = imgui.get_io().font_global_scale
             self.tex_handle = _texture(gl.GL_NEAREST, gl.GL_NEAREST)
-            self.state = EasyDict()
             self.setup_state()
             self.start_event.set()
 

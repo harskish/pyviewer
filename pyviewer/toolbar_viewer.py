@@ -285,6 +285,12 @@ class ToolbarViewer:
                     max_scale = max(self.v._imgui_fonts.keys()) / self.v.default_font_size
                     min_scale = min(self.v._imgui_fonts.keys()) / self.v.default_font_size
                     ch, val = imgui.slider_float('', s, min_scale, max_scale)
+                
+                # Reset scale with right click (consistent with AutoUI widgets)
+                if imgui.is_item_hovered():
+                    if imgui.is_mouse_clicked(imgui.MouseButton_.right):
+                        (ch, val) = (True, 1.0)
+
                 if ch:
                     self.v.set_ui_scale(val)
             else:
