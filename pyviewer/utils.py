@@ -656,12 +656,22 @@ def begin_inline(name, inputs=True):
     imgui.pop_style_var()
 
 # Recursive getattr
-def rgetattr(obj, key, default=None):
+def rgetattr(obj, key, default=None, use_getitem=True):
+    """
+    Recursive getattr, keys are dot-separated.
+    Optionally also call getitem if attribute is missing (e.g. for dicts)
+    """
+    def getter(obj, key, default=None):
+        if hasattr(obj, key):
+            return getattr(obj, key)
+        if use_getitem and key in obj:
+            return obj[key]
+        return default
     head = obj
     while '.' in key:
         bot, key = key.split('.', maxsplit=1)
-        head = getattr(head, bot, {})
-    return getattr(head, key, default)
+        head = getter(head, bot, {})
+    return getter(head, key, default)
 
 # Combo box that returns value, not index
 # Idx needed if there are duplicates in the allowed values
@@ -688,7 +698,7 @@ def slider_dynamic(title, v, min, max, width=0.0):
 # Int2 slider that prevents overlap
 def slider_range_int(v1, v2, vmin, vmax, push=False, title='', width=0.0):
     with imgui_item_width(width):
-        ch, (s, e) = imgui.slider_int2(title, v1, v2, vmin, vmax)
+        ch, (s, e) = imgui.slider_int2(title, (v1, v2), vmin, vmax)
 
     if push:
         return ch, (min(s, e), max(s, e))
