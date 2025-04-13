@@ -56,6 +56,11 @@ def main():
     impl = GlfwRenderer(window)
     init_fonts_and_markdown()
 
+    hdpi_factor = 1 / glfw.get_monitor_content_scale(glfw.get_primary_monitor())[0]
+    imgui.get_io().font_global_scale = hdpi_factor
+    imgui.get_style().scale_all_sizes(hdpi_factor)
+    print('HDPI factor is:', hdpi_factor)
+
     t1 = None
     show_custom_window = True
     while not glfw.window_should_close(window):
