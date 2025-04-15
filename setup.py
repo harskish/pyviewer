@@ -22,8 +22,13 @@ if 'develop' in sys.argv:
 # the publish workflow and checking the "Print whl contents" step,
 # or with: `rm -r build\ && pip wheel . && unzip -l pyviewer-*.whl`
 # (not same environment, but good first step)
+
+# Normally we would parse the _version.py sources to get the version string.
+# Pyviewer's __init__.py imports nothing but the version string, however, so this is safe.
+from pyviewer._version import __version__ as version_str
+
 setup(name='pyviewer',
-    version='2.0.0',
+    version=version_str,
     description='Interactyive python viewers',
     author='Erik Härkönen',
     author_email='erik.harkonen@hotmail.com',

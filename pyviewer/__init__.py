@@ -1,1 +1,1 @@
-# empty
+from ._version import __version__ # exposes pyviewer.__version__
