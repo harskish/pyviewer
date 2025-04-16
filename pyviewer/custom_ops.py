@@ -2,9 +2,6 @@
 
 import os
 import sys
-import torch
-import torch.utils.cpp_extension as cpp
-
 import importlib
 from functools import cache
 from typing import Union
@@ -58,7 +55,14 @@ def get_plugin(
     # Some containers set this to contain old architectures that won't compile. We only need the one installed in the machine.
     os.environ['TORCH_CUDA_ARCH_LIST'] = ''
 
-    build_dir = cpp._get_build_directory(plugin_name, False)
+    # Custom build dir, avoids expensive torch.utils.cpp_extension import (for _get_build_directory())
+    # Enables quicker loads if compiled module exists.
+    import torch
+    cu_str = ('cpu' if torch.version.cuda is None else f'cu{torch.version.cuda.replace(".", "")}')
+    python_version = f'py{sys.version_info.major}{sys.version_info.minor}{getattr(sys, "abiflags", "")}'
+    ext_dir = os.path.expanduser(f'~/.cache/torch_extensions/{python_version}_{cu_str}')
+    build_dir = os.path.join(ext_dir, plugin_name)
+    os.environ['TORCH_EXTENSIONS_DIR'] = ext_dir
 
     # Try to load prebuilt, continue to build on failure
     # Might load an old version if the sources have changed
@@ -74,6 +78,11 @@ def get_plugin(
             pass # could not load cached, proceed to compilation step
         finally:
             sys.path = prev_path
+
+    # Make sure build dir is honored
+    import torch.utils.cpp_extension as cpp
+    _build_dir = cpp._get_build_directory(plugin_name, False)
+    assert _build_dir == build_dir, 'Torch extension build dir mismatch'
 
     if os.name == "nt":
         try:

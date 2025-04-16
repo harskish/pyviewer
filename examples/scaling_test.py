@@ -38,7 +38,7 @@ def _build_siemens_star_unscaled(origin=(0, 0), radius=1, n=100, DPI=600, width=
     fig.savefig(io_buf, format='raw', dpi=DPI)
     io_buf.seek(0)
     img_arr = np.reshape(np.frombuffer(io_buf.getvalue(), dtype=np.uint8),
-        shape=(int(fig.bbox.bounds[3]), int(fig.bbox.bounds[2]), -1))
+        (int(fig.bbox.bounds[3]), int(fig.bbox.bounds[2]), -1))
     io_buf.close()
     print('Siemens start shape:', img_arr.shape)
 
@@ -81,6 +81,7 @@ from pyviewer.toolbar_viewer import ToolbarViewer
 class Test(ToolbarViewer):
     def setup_state(self):
         self.auto_res = False  # res based on window size
+        self.cuda = False
         self.width = 512
         self.height = 512
         self.pattern = PATTERNS.GRID
@@ -103,6 +104,11 @@ class Test(ToolbarViewer):
                 img[:, :, :] = np.array([255, 255, 0])
 
         #siv.draw(img_hwc=img)
+
+        if self.cuda:
+            import torch
+            img = torch.from_numpy(img).cuda()
+
         return img
     
     def load_config(self, conf: dict):
@@ -118,6 +124,7 @@ class Test(ToolbarViewer):
         self.pattern = combo_box_vals('Pattern', PATTERNS, self.pattern, to_str=lambda p: p.value)[1][0]
         self.auto_res = imgui.checkbox('Auto-res', self.auto_res)[1]
         self.pan_enabled = imgui.checkbox('Pan enabled', self.pan_enabled)[1]
+        self.cuda = imgui.checkbox('CUDA', self.cuda)[1]
         self.width = imgui.slider_int('Width', self.width, 4, 2048*4)[1]
         self.height = imgui.slider_int('Height', self.height, 4, 2048*4)[1]
         ch, self.tex_nearest = imgui.checkbox('Tex nearest', self.tex_nearest)

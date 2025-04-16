@@ -6,10 +6,11 @@ from functools import lru_cache
 import numpy as np
 import multiprocessing as mp
 from pathlib import Path
-from threading import get_ident
+import threading
 from typing import Dict
 import sys
 from sys import platform
+import time
 from contextlib import contextmanager, nullcontext
 from platform import uname
 
@@ -27,50 +28,45 @@ import glfw
 glfw.ERROR_REPORTING = 'raise' # make sure errors don't get swallowed
 import OpenGL.GL as gl
 
-has_torch = False
-try:
-    import torch
-    has_torch = True
-except:
-    pass
+@lru_cache
+def get_cuda_synchronize():
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return torch.cuda.synchronize
+    except ImportError:
+        pass
+    return lambda : None
+    
+def cuda_synchronize():
+    sync_fun = get_cuda_synchronize()
+    sync_fun()
 
-torch_has_cuda = False
-if has_torch and torch.cuda.is_available():
-    torch_has_cuda = True
-
-cuda_synchronize = torch.cuda.synchronize if torch_has_cuda else lambda : None
-
-has_pycuda = False
-try:
-    import pycuda
-    import pycuda.gl as cuda_gl
-    import pycuda.tools
-    has_pycuda = True
-except Exception:
-    pass
-
-# CUDA-GL copy via PyTorch extension
-pt_plugin = None
-try:
-    if torch_has_cuda:
+@lru_cache
+def get_pt_plugin():
+    try:
+        print('Setting up PT plugin')
         from . import custom_ops
         pt_plugin = custom_ops.get_plugin('cuda_gl_interop', 'cuda_gl_interop.cpp', Path(__file__).parent / './custom_ops', unsafe_load_prebuilt=True)
-except Exception as e:
-    print('Failed to build CUDA-GL plugin')
+        return pt_plugin
+    except Exception as e:
+        print('Failed to build CUDA-GL plugin:', e)
+        print('Images will be uploaded from RAM.')
+        return None
 
 class PTExtMapper:
     tex: int
     resource: int # uint64_t
     
-    def __init__(self, tex) -> None:
+    def __init__(self, tex: int) -> None:
         self.tex = tex
-        self.resource = pt_plugin.register(tex)
+        self.resource = get_pt_plugin().register(tex)
     
     def unregister(self) -> None:
-        pt_plugin.unregister(self.resource)
+        get_pt_plugin().unregister(self.resource)
 
     def upload(self, ptr: int, W: int, H: int, N: int) -> None:
-        pt_plugin.upload(ptr, W, H, N, self.resource) # map, copy, unmap
+        get_pt_plugin().upload(ptr, W, H, N, self.resource) # map, copy, unmap
 
 MIPMAP_MODES = [gl.GL_NEAREST_MIPMAP_NEAREST, gl.GL_LINEAR_MIPMAP_NEAREST, gl.GL_NEAREST_MIPMAP_LINEAR, gl.GL_LINEAR_MIPMAP_LINEAR]
 class _texture:
@@ -86,15 +82,14 @@ class _texture:
             gl.glTexParameteri(gl.GL_TEXTURE_2D, *params)
         self.min_filter = min_filter
         self.mag_filter = mag_filter
-        self.mapper = None  # pycuda mapper or torch extension cudaGraphicsResource_t
+        self.mapper = None  # torch extension cudaGraphicsResource_t
         self.is_fp = True
         self.shape = [0,0]
 
     # be sure to del textures if you create a forget them often (python doesn't necessarily call del on garbage collect)
     def __del__(self):
-        gl.glDeleteTextures(1, [self.tex])
-        if self.mapper is not None:
-            self.mapper.unregister()
+        if gl is not None:
+            gl.glDeleteTextures(1, [self.tex])
 
     @property
     def needs_mipmap(self):
@@ -163,12 +158,13 @@ class _texture:
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
     def upload_torch(self, img):
+        import torch
         assert img.device.type == "cuda", "Please provide a CUDA tensor"
         assert img.ndim == 3, "Please provide a HWC tensor"
         assert img.shape[2] < min(img.shape[0], img.shape[1]), "Please provide a HWC tensor"
         assert img.dtype in [torch.float32, torch.uint8], 'Only fp32 and u8 supported'
 
-        if not has_pycuda and pt_plugin is None:
+        if get_pt_plugin() is None:
             return self.upload_np(img.detach().cpu().numpy())
         
         # OpenGL stores RGBA-strided data always
@@ -184,7 +180,7 @@ class _texture:
 
     # Copy from cuda pointer
     def upload_ptr(self, ptr, shape, is_fp32):
-        assert has_pycuda or pt_plugin is not None, 'PyCUDA-GL or PT plugin needed for pointer upload'
+        assert get_pt_plugin() is not None, 'PT plugin needed for pointer upload'
         has_alpha = shape[-1] == 4
 
         # Reallocate if shape changed or data type changed from np to torch
@@ -219,10 +215,7 @@ class _texture:
 
             gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, internal_fmt, shape[1], shape[0], 0, incoming_fmt, incoming_dtype, None)
             gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
-            if has_pycuda:
-                self.mapper = cuda_gl.RegisteredImage(int(self.tex), gl.GL_TEXTURE_2D, pycuda.gl.graphics_map_flags.WRITE_DISCARD)
-            else:
-                self.mapper = PTExtMapper(int(self.tex))
+            self.mapper = PTExtMapper(int(self.tex))
         
         # Cast to python integer type
         ptr_int = int(ptr)
@@ -232,25 +225,7 @@ class _texture:
         H, W, C = shape
         assert C == 4, 'Input data must be RGBA' # OpenGL always stores alpha channel
 
-        if has_pycuda:
-            # map texture to cuda ptr
-            tex_data = self.mapper.map()
-            tex_arr = tex_data.array(0, 0)
-            
-            # copy from torch tensor to mapped gl texture (avoid cpu roundtrip)
-            # https://documen.tician.de/pycuda/driver.html#pycuda.driver.Memcpy2D
-            cpy = pycuda.driver.Memcpy2D()
-            cpy.set_src_device(ptr_int)
-            cpy.set_dst_array(tex_arr)
-            cpy.width_in_bytes = W*C*N  # Number of bytes to copy for each row in the transfer
-            cpy.src_pitch = W*C*N       # Size of a row in bytes at the origin of the copy
-            cpy.dst_pitch = W*C*N       # Size of a row in bytes at the destination of the copy
-            cpy.height = H
-            cpy(aligned=False)
-            tex_data.unmap()
-        else:
-            self.mapper.upload(ptr_int, W, H, C*N)
-
+        self.mapper.upload(ptr_int, W, H, C*N)
         cuda_synchronize()
 
 class _editable:
@@ -309,9 +284,6 @@ class viewer:
 
         if not glfw.init():
             raise RuntimeError('GLFW init failed')
-
-        if not has_pycuda and pt_plugin is None:
-            print('Neither PyCUDA-GL nor Torch+CUDA available, images will be uploaded from RAM.')
         
         try:
             with open(self._inifile, 'r') as file:
@@ -392,28 +364,24 @@ class viewer:
         glfw.make_context_current(self._window)
         # print('GL context:', gl.glGetString(gl.GL_VERSION).decode('utf8'))
 
-        self._cuda_context = None
-        if has_pycuda:
-            pycuda.driver.init()
-            self._cuda_context = pycuda.gl.make_context(pycuda.driver.Device(0))
         glfw.swap_interval(swap_interval) # should increase on high refresh rate monitors
         glfw.make_context_current(None)
 
         self._imgui_context = imgui.create_context()
         self._implot_context = implot.create_context()
         implot.set_imgui_context(self._imgui_context)
-        #implot.get_style().anti_aliased_lines = True # turn global AA on
 
         font = self.get_default_font()
 
         # MPLUSRounded1c-Medium.ttf: no content for sizes >35
         # Apple M1, WSL have have low texture count limits
+        # Too many fonts => GLFWRenderer.refresh_font_texture() will be slow
         font_sizes = range(8, 36, 1) if 'win32' in platform else range(9, 36, 2) # make sure to include 15 (default font size)
         font_sizes = [int(s) for s in font_sizes]
         handle = imgui.get_io().fonts
+        glyph_range = None #handle.get_glyph_ranges_chinese_full() # NB: full Chinese range super slow
         self._imgui_fonts = {
-            size: handle.add_font_from_file_ttf(font, size,
-                glyph_ranges_as_int_list=handle.get_glyph_ranges_chinese_full()) for size in font_sizes
+            size: handle.add_font_from_file_ttf(font, size, glyph_ranges_as_int_list=glyph_range) for size in font_sizes
         }
 
         # TODO: add scale field to font?
@@ -427,20 +395,12 @@ class viewer:
         font = Path(__file__).parent / 'MPLUSRounded1c-Medium.ttf'
         assert font.is_file(), f'Font file missing: "{font.resolve()}"'
         return str(font)
-    
-    def push_context(self):
-        if has_pycuda:
-            self._cuda_context.push()
-    
-    def pop_context(self):
-        if has_pycuda:
-            self._cuda_context.pop()
 
     @contextmanager
     def lock(self, strict=True):
         # Prevent double locks, e.g. when
         # calling upload_image() from UI thread
-        tid = get_ident()
+        tid = threading.get_ident()
         if self._context_tid == tid:
             yield self._context_lock
             return
@@ -583,14 +543,15 @@ class viewer:
         self._images: Dict[str, _texture] = {}
         glfw.make_context_current(None)
         glfw.destroy_window(self._window)
-        self.pop_context()
     
     def start(self, loopfunc, workers = (), glfw_init_callback = None):
         self._pressed_keys = set()
         self._hit_keys = set()
         
         with self.lock():
+            t0 = time.monotonic()
             self.renderer = GlfwRenderer(self._window)
+            print(f'GlfwRenderer init (incl. font atlas) took: {time.monotonic()-t0:.2f}s')
 
         def on_key(window, key, scan, pressed, mods):
             if pressed:
@@ -637,9 +598,9 @@ class viewer:
             with self.lock(strict=False) as l:
                 if l == nullcontext:
                     continue
-
-                # Breaks on MacOS. Needed?
-                #imgui.get_io().display_size = glfw.get_framebuffer_size(self._window)
+                
+                # If adding fonts, before new_frame:
+                #self.renderer.refresh_font_texture()
                 
                 imgui.new_frame()
 
@@ -693,17 +654,20 @@ class viewer:
         self.gl_shutdown()
 
     def upload_image(self, name, data):
-        if has_torch and torch.is_tensor(data):
-            if data.device.type in ['mps', 'cpu']:
-                # would require gl-metal interop or metal UI backend
-                return self.upload_image_np(name, data.cpu().numpy())
-            else:
-                return self.upload_image_torch(name, data)
-        else:
+        if isinstance(data, np.ndarray):
             return self.upload_image_np(name, data)
+        
+        import torch
+        assert torch.is_tensor(data), 'Unknown image type (expected np.ndarray or torch.Tensor)'
+        if data.device.type in ['mps', 'cpu']:
+            # would require gl-metal interop or metal UI backend
+            return self.upload_image_np(name, data.cpu().numpy())
+        else:
+            return self.upload_image_torch(name, data)
 
     # Upload image from PyTorch tensor
     def upload_image_torch(self, name, tensor):
+        import torch
         assert isinstance(tensor, torch.Tensor)
         tensor = normalize_image_data(tensor, 'uint8')
 
@@ -712,11 +676,9 @@ class viewer:
                 return
             cuda_synchronize()
             if not self.quit:
-                self.push_context() # set the context for whichever thread wants to upload
                 if name not in self._images:
                     self._images[name] = _texture(self.tex_interp_mode_min, self.tex_interp_mode_mag)
                 self._images[name].upload_torch(tensor)
-                self.pop_context()
 
     def upload_image_np(self, name, data):
         assert isinstance(data, np.ndarray)
@@ -725,10 +687,8 @@ class viewer:
         with self.lock(strict=False) as l:
             if l == nullcontext: # isinstance doesn't work
                 return
-            cuda_synchronize()
+            #cuda_synchronize()
             if not self.quit:
-                self.push_context() # set the context for whichever thread wants to upload
                 if name not in self._images:
                     self._images[name] = _texture(self.tex_interp_mode_min, self.tex_interp_mode_mag)
                 self._images[name].upload_np(data)
-                self.pop_context()
