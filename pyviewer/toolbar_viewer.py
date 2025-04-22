@@ -30,6 +30,7 @@ class ToolbarViewer:
         self._user_pad_bottom = pad_bottom
         self.v = gl_viewer.viewer(name, hidden=hidden or batch_mode, swap_interval=1)
         self.menu_bar_height = self.v.font_size + 2*imgui.get_style().frame_padding.y
+        self.draw_scale_buttons = True # integer scale buttons under main image
         
         # Window title can be used to show progress etc.
         self._orig_window_title = name
@@ -110,7 +111,8 @@ class ToolbarViewer:
     # Extra user content below image
     @property
     def pad_bottom(self):
-        return max(self._user_pad_bottom, int(round(24 * self.v.ui_scale)) + 6)
+        min_pad = 0 if not self.draw_scale_buttons else int(round(24 * self.v.ui_scale)) + 6
+        return max(self._user_pad_bottom, min_pad)
 
     @property
     def toolbar_width(self):
@@ -169,12 +171,9 @@ class ToolbarViewer:
     def _draw_output(self):
         v = self.v
 
-        BOTTOM_PAD = self.pad_bottom
         W, H = glfw.get_window_size(v._window)
-        imgui.set_next_window_size((W - self.toolbar_width, H - self.menu_bar_height - BOTTOM_PAD))
+        imgui.set_next_window_size((W - self.toolbar_width, H - self.menu_bar_height - self.pad_bottom))
         imgui.set_next_window_pos((self.toolbar_width, self.menu_bar_height))
-
-        s = v.ui_scale
 
         # Texture handle to main image
         # If image is missing: assume fullscreen plot, don't block mouse events
@@ -224,8 +223,8 @@ class ToolbarViewer:
         imgui.end()
 
         # New window with inputs for bottom elements
-        imgui.set_next_window_size((W - self.toolbar_width, BOTTOM_PAD))
-        imgui.set_next_window_pos((self.toolbar_width, H - BOTTOM_PAD))
+        imgui.set_next_window_size((W - self.toolbar_width, self.pad_bottom))
+        imgui.set_next_window_pos((self.toolbar_width, H - self.pad_bottom))
         begin_inline('Output below')
         
         # Equal spacing
@@ -236,12 +235,25 @@ class ToolbarViewer:
         imgui.next_column()
 
         # Scaling buttons
+        if self.draw_scale_buttons:
+            self.scale_buttons_ui()
+
+        imgui.columns(1)
+
+        imgui.end()
+
+    def scale_buttons_ui(self):
         #button_region_width = imgui.get_content_region_available_width()
         button_region_width = imgui.get_content_region_avail()[0]
 
+        s = self.ui_scale
         sizes = ['0.5', '1', '2', '3', '4', '6']
         button_W = 40 * s
         pad_left = max(0, button_region_width - (button_W * len(sizes)))
+        W, H = glfw.get_window_size(self.v._window)
+        cW, cH = map(int, imgui.get_content_region_avail())
+
+        has_tex = self.output_key in self.v._images
 
         for i, s in enumerate(sizes):
             imgui.same_line(offset_from_start_x=pad_left+i*button_W)
@@ -250,14 +262,10 @@ class ToolbarViewer:
                     # Resize window
                     resW = int(self.img_shape[2] * float(s))
                     resH = int(self.img_shape[1] * float(s))
-                    glfw.set_window_size(v._window,
-                        width=resW+W-cW, height=resH+H-cH+BOTTOM_PAD) # TODO probably wrong
-                elif tex_in is not None: # do nothing if no image (fullscreen plot etc.)
+                    glfw.set_window_size(self.v._window,
+                        width=resW+W-cW, height=resH+H-cH+self.pad_bottom) # TODO probably wrong
+                elif has_tex: # do nothing if no image (fullscreen plot etc.)
                     self.pan_handler.set_output_scale(s)
-
-        imgui.columns(1)
-
-        imgui.end()
 
     def _toolbar_wrapper(self):
         if imgui.begin_main_menu_bar():
