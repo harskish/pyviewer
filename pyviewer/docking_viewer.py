@@ -95,6 +95,14 @@ class DockingViewer:
     def setup_theme(self):
         theme_deep_dark()
 
+    def load_settings(self):
+        """Load settings using `hello_imgui.load_user_pref(k: str)`"""
+        pass
+
+    def save_settings(self):
+        """Save settings using `hello_imgui.save_user_pref(k: str, v: str)`"""
+        pass
+
     # Manual GLFW callbacks
     # Overrides the ones below
     def setup_callbacks(self, window):
@@ -141,6 +149,11 @@ class DockingViewer:
         s.indent_spacing        = font_size
         s.scrollbar_size        = font_size + 4
     
+    def set_ui_scale(self, scale: float):
+        self.ui_scale = scale
+        self.scale_style_sizes() #imgui.get_style().scale_all_sizes(delta)
+        imgui.get_io().font_global_scale = scale * self.initial_font_scale # should reload fonts + rebuild font atlas for sharp results
+    
     def _draw_menu_wrapper(self, runner_params: hello_imgui.RunnerParams):
         if self.show_app_menu:
             hello_imgui.show_app_menu(runner_params) # quit button
@@ -179,11 +192,7 @@ class DockingViewer:
                     (ch, val) = (True, 1.0)
             
             if ch:
-                #self.set_ui_scale(val)
-                delta = val / self.ui_scale
-                self.ui_scale = val
-                self.scale_style_sizes() #imgui.get_style().scale_all_sizes(delta)
-                imgui.get_io().font_global_scale = val * self.initial_font_scale # should reload fonts + rebuild font atlas for sharp results
+                self.set_ui_scale(val)
         else:
             pad = max_x - cursor - 25*s
             imgui.invisible_button('##hidden', size=(pad, 1))
@@ -237,9 +246,17 @@ class DockingViewer:
         self.large_icon_font: imgui.ImFont = None
         self.window: glfw._GLFWwindow = None
         
+        def load_settings_cbk():
+            try:
+                self.set_ui_scale(float(hello_imgui.load_user_pref('ui_scale')))
+            except:
+                pass
+            self.load_settings()
+        
         def post_init_fun():
             self.initial_font_scale = imgui.get_io().font_global_scale
             self.tex_handle = _texture(gl.GL_NEAREST, gl.GL_NEAREST)
+            load_settings_cbk()
             self.setup_state()
             self.start_event.set()
 
@@ -256,12 +273,17 @@ class DockingViewer:
             self.setup_theme() # user-overridable
             self.scale_style_sizes()
             self.pan_handler.clear_color = imgui.get_style().color_(imgui.Col_.window_bg) # match theme_deep_dark
-        
+
+        def save_settings_cbk():
+            hello_imgui.save_user_pref("ui_scale", f'{self.ui_scale}')
+            self.save_settings()
+
         runner_params.callbacks.post_init = post_init_fun
         runner_params.callbacks.before_exit = before_exit
         runner_params.callbacks.post_init_add_platform_backend_callbacks = add_backend_cbk
         runner_params.callbacks.load_additional_fonts = self.load_fonts
         runner_params.callbacks.setup_imgui_style = setup_theme_cbk
+        runner_params.callbacks.before_exit = save_settings_cbk
 
         self.show_app_menu = False
         self.show_view_menu = True
