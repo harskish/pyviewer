@@ -211,6 +211,14 @@ def theme_deep_dark():
     set_color(s, 'ImGuiCol_NavWindowingDimBg',      (1.00, 0.00, 0.00, 0.20))
     set_color(s, 'ImGuiCol_ModalWindowDimBg',       (1.00, 0.00, 0.00, 0.35))
 
+    # Docking-related
+    s.window_padding = (3, 3)
+    s.tab_rounding = 0
+    s.set_color_(imgui.Col_.tab_dimmed_selected, (39/255, 44/255, 54/255, 1))
+    s.set_color_(imgui.Col_.tab_selected, (39/255, 44/255, 54/255, 1))
+    s.set_color_(imgui.Col_.tab, (39/255, 44/255, 54/255, 1))
+    s.set_color_(imgui.Col_.title_bg, (15/255, 15/255, 15/255, 1))
+
 # Deep-dark with ps-style borders
 def theme_contrast():
     theme_deep_dark()

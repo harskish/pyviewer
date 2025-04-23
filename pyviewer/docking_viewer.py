@@ -94,14 +94,6 @@ class DockingViewer:
     # Can be overridden
     def setup_theme(self):
         theme_deep_dark()
-        self.pan_handler.clear_color = (0.101, 0.101, 0.101, 1.00) # match theme_deep_dark
-        s: imgui.Style = imgui.get_style()
-        s.window_padding = (3, 3)
-        s.tab_rounding = 0
-        s.set_color_(imgui.Col_.tab_dimmed_selected, (39/255, 44/255, 54/255, 1))
-        s.set_color_(imgui.Col_.tab_selected, (39/255, 44/255, 54/255, 1))
-        s.set_color_(imgui.Col_.tab, (39/255, 44/255, 54/255, 1))
-        s.set_color_(imgui.Col_.title_bg, (15/255, 15/255, 15/255, 1))
 
     # Manual GLFW callbacks
     # Overrides the ones below
@@ -201,7 +193,17 @@ class DockingViewer:
             self.ui_locked = not self.ui_locked
         imgui.pop_style_color()
     
-    def __init__(self, name: str):
+    def __init__(
+        self,
+        name: str,
+        with_markdown=False,
+        with_markdown_options=None,
+        with_implot=True,
+        with_implot3d=False,
+        with_node_editor=False,
+        with_node_editor_config=None,
+        with_tex_inspect=False,
+    ):
         # Start compute thread asap
         self.start_event: threading.Event = threading.Event()
         self.stop_event: threading.Event = threading.Event()
@@ -249,12 +251,17 @@ class DockingViewer:
             # Set own glfw callbacks, will be chained by imgui
             self.window = glfw_utils.glfw_window_hello_imgui() # why not glfw.get_current_context()?
             self.pan_handler.set_callbacks(self.window)
+
+        def setup_theme_cbk():
+            self.setup_theme() # user-overridable
+            self.scale_style_sizes()
+            self.pan_handler.clear_color = imgui.get_style().color_(imgui.Col_.window_bg) # match theme_deep_dark
         
         runner_params.callbacks.post_init = post_init_fun
         runner_params.callbacks.before_exit = before_exit
         runner_params.callbacks.post_init_add_platform_backend_callbacks = add_backend_cbk
         runner_params.callbacks.load_additional_fonts = self.load_fonts
-        runner_params.callbacks.setup_imgui_style = self.setup_theme
+        runner_params.callbacks.setup_imgui_style = setup_theme_cbk
 
         self.show_app_menu = False
         self.show_view_menu = True
@@ -288,7 +295,15 @@ class DockingViewer:
         print(f'INI path: {ini_path}')
 
         glfw.init()  # needed by glfw_utils.glfw_window_hello_imgui
-        addons = immapp.AddOnsParams(with_markdown=True)
+        addons = immapp.AddOnsParams(
+            with_markdown=with_markdown,
+            with_markdown_options=with_markdown_options,
+            with_implot=with_implot,
+            with_implot3d=with_implot3d,
+            with_node_editor=with_node_editor,
+            with_node_editor_config=with_node_editor_config,
+            with_tex_inspect=with_tex_inspect,
+        )
         immapp.run(runner_params, add_ons_params=addons)
     
     def setup_layout(self) -> hello_imgui.DockingParams:
@@ -307,7 +322,7 @@ class DockingViewer:
         # N-1 splits
         dock_names = ['MainDockSpace'] + [f'Dock{i}' for i in range(len(layout_funcs)-1)]
         splits = [hello_imgui.DockingSplit(i, n, imgui.Dir.right) for i, n in zip(dock_names[:-1], dock_names[1:])]
-        windows = [hello_imgui.DockableWindow(f.__name__, d, f, can_be_closed_=False) for f, d in zip(layout_funcs, dock_names)]
+        windows = [hello_imgui.DockableWindow(f.__name__, d, f, can_be_closed_=True) for f, d in zip(layout_funcs, dock_names)]
 
         return hello_imgui.DockingParams(splits, windows)
     

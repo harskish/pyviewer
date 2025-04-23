@@ -15,6 +15,8 @@ from matplotlib.patches import Wedge
 from matplotlib.collections import PatchCollection
 matplotlib.use('Agg')
 
+from pyviewer.toolbar_viewer import ToolbarViewer
+
 # Don't accidentally test different version
 assert Path(pyviewer.__file__).parents[1] == Path(__file__).parents[1], \
     'Not running local editable install, please run "pip install --force-reinstall -e ."'
@@ -77,7 +79,6 @@ default_conf = {
 
 configs = { 'Debu': conf_debu, 'Eriks-MacBook-Pro.local': conf_mbp }.get(socket.gethostname(), default_conf)
 
-from pyviewer.toolbar_viewer import ToolbarViewer
 class Test(ToolbarViewer):
     def setup_state(self):
         self.auto_res = False  # res based on window size
