@@ -57,8 +57,6 @@ class DockingViewer:
     def __init__(
         self,
         name: str,
-        with_markdown=False,
-        with_markdown_options=None,
         with_implot=True,
         with_implot3d=False,
         with_node_editor=False,
@@ -185,8 +183,6 @@ class DockingViewer:
 
         glfw.init()  # needed by glfw_utils.glfw_window_hello_imgui
         addons = immapp.AddOnsParams(
-            with_markdown=with_markdown,
-            with_markdown_options=with_markdown_options,
             with_implot=with_implot,
             with_implot3d=with_implot3d,
             with_node_editor=with_node_editor,
@@ -396,17 +392,26 @@ class DockingViewer:
 
         raise NotImplementedError('Not implemented')
     
-    def get_default_font(self):
+    def get_default_font_path(self):
         font = Path(__file__).parent / 'MPLUSRounded1c-Medium.ttf'
         assert font.is_file(), f'Font file missing: "{font.resolve()}"'
         return font.as_posix()
     
+    def get_mono_font_path(self):
+        font = Path(__file__).parent / 'Hack-Regular.ttf'
+        assert font.is_file(), f'Font file missing: "{font.resolve()}"'
+        return font.as_posix()
+    
     def load_fonts(self):
+        # BUNDLED:
+        # Akronim-Regular.ttf, DroidSans.ttf, Font_Awesome_6_Free-Solid-900.otf, Inconsolata-Medium.ttf,
+        # NotoEmoji-Regular.ttf, entypo.ttf, fontawesome-webfont.ttf, Playbox/Playbox-FREE.otf,
+        # Roboto/Roboto-Bold.ttf, Roboto/Roboto-BoldItalic.ttf, Roboto/Roboto-Regular.ttf, Roboto/Roboto-RegularItalic.ttf
+        
         # Load the main font
         size = self.initial_font_size * self.ui_scale
         external = hello_imgui.FontLoadingParams(inside_assets=False)
-        self.fonts.append(hello_imgui.load_font_dpi_responsive(self.get_default_font(), size, external))
-        #self.fonts.append(hello_imgui.load_font_dpi_responsive("fonts/DroidSans.ttf", size))
+        self.fonts.append(hello_imgui.load_font_dpi_responsive(self.get_default_font_path(), size, external))
         
         # Merge with Font Awesome 6 (fontawesome.com/search?o=r&ic=free&s=solid&ip=classic)
         # Both font handles must be kept around for resizing
@@ -416,6 +421,9 @@ class DockingViewer:
             font_loading_params_title_icons = hello_imgui.FontLoadingParams(merge_to_last_font=True, use_full_glyph_range=True)
             self.fonts.append(hello_imgui.load_font_dpi_responsive(
                 "fonts/Font_Awesome_6_Free-Solid-900.otf", size, font_loading_params_title_icons))
+        
+        self.code_font = hello_imgui.load_font_dpi_responsive(self.get_mono_font_path(), size, external)
+        self.fonts.append(self.code_font)
     
     def update_image(self, arr):
         assert isinstance(arr, np.ndarray)
@@ -452,7 +460,8 @@ class DockingViewer:
         print('Compute thread: received stop event, exiting')
 
     def set_window_title(self, title):
-        raise NotImplementedError()
+        #raise NotImplementedError()
+        pass
 
     #########################
     # User provided callbacks
