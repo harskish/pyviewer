@@ -9,6 +9,7 @@ import os
 import glfw
 import random
 import string
+import struct
 import time
 from textwrap import dedent
 from functools import wraps
@@ -864,6 +865,12 @@ def normalize_image_data(img_hwc, target_dtype='uint8'):
     img_hwc = img_hwc[:, :, :3]
 
     return img_hwc
+
+def float_flip_lsb(v: float) -> float:
+    """Treat Python float as 32bit, flip lsb, return"""
+    binary = struct.unpack('!I', struct.pack('!f', v))[0] # '!' means big-endian
+    binary ^= 1 # flip the least significant bit
+    return struct.unpack('!f', struct.pack('!I', binary))[0]
 
 def rate_limit(T, default=None, delay=0):
     """

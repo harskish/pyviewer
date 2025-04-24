@@ -17,7 +17,7 @@ import OpenGL.GL as gl
 
 from .gl_viewer import _texture
 from .toolbar_viewer import PannableArea
-from .utils import normalize_image_data
+from .utils import normalize_image_data, float_flip_lsb
 from .imgui_themes import theme_deep_dark
 from .easy_dict import EasyDict
 
@@ -53,162 +53,7 @@ def dockable(func):
     setattr(func, 'layout_pos', 'Dummy')
     return func
 
-def file_drop_callback_wrapper(window, paths, callback: callable, prev: callable):
-    return callback([Path(p) for p in paths]) or prev(window, paths)
-
-def scroll_callback_wrapper(window, xoffset, yoffset, callback: callable, prev: callable):
-    return callback(xoffset, yoffset) or prev(window, xoffset, yoffset)
-
 class DockingViewer:
-    #########################
-    # User provided callbacks
-    #########################
-
-    # Draw toolbar, must be implemented
-    def draw_toolbar(self):
-        pass
-
-    def draw_status_bar(self):
-        pass
-
-    # Draw overlays using main window draw list
-    def draw_overlays(self, draw_list):
-        pass
-
-    def draw_menu(self):
-        pass
-    
-    # One time compute thread initialization
-    # Usually not needed
-    def compute_thread_init(self):
-        pass
-
-    # Perform computation, returning single np/torch image, or None
-    def compute(self):
-        pass
-
-    # Program state init
-    def setup_state(self):
-        pass
-
-    # Can be overridden
-    def setup_theme(self):
-        theme_deep_dark()
-
-    def load_settings(self):
-        """Load settings using `hello_imgui.load_user_pref(k: str)`"""
-        pass
-
-    def save_settings(self):
-        """Save settings using `hello_imgui.save_user_pref(k: str, v: str)`"""
-        pass
-
-    # Manual GLFW callbacks
-    # Overrides the ones below
-    def setup_callbacks(self, window):
-        pass
-
-    def drag_and_drop_callback(self, paths: list[Path]) -> bool:
-        pass
-
-    def scroll_callback(self, xoffset: float, yoffset: float) -> bool:
-        pass
-
-    # Cleanup before exit (Esc or window close)
-    def shutdown(self):
-        pass
-    
-    ################
-    # Class internal
-    ################
-    
-    # Includes keyboard (glfw.KEY_A) and mouse (glfw.MOUSE_BUTTON_LEFT)
-    def keydown(self, key: Union[int, str]):
-        """key: glfw keycode or str matching glfw keycode constant"""
-        if isinstance(key, str):
-            key = getattr(glfw, key.upper())
-        return self.v.keydown(key)
-    
-    def keyhit(self, key: str):
-        """key: glfw keycode or str matching glfw keycode constant"""
-        if isinstance(key, str):
-            key = getattr(glfw, key.upper())
-        return self.v.keyhit(key)
-        
-    def scale_style_sizes(self):
-        """More conservative alternative to imgui.get_style().scale_all_sizes()"""
-        factor = self.ui_scale
-        font_size = 9 * factor #self._cur_font_size
-        spacing = round(font_size * 0.3)
-
-        s = imgui.get_style()
-        s.window_padding        = [spacing, spacing]
-        s.item_spacing          = [spacing, spacing]
-        s.item_inner_spacing    = [spacing, spacing]
-        s.columns_min_spacing   = spacing
-        s.indent_spacing        = font_size
-        s.scrollbar_size        = font_size + 4
-    
-    def set_ui_scale(self, scale: float):
-        self.ui_scale = scale
-        self.scale_style_sizes() #imgui.get_style().scale_all_sizes(delta)
-        imgui.get_io().font_global_scale = scale * self.initial_font_scale # should reload fonts + rebuild font atlas for sharp results
-    
-    def _draw_menu_wrapper(self, runner_params: hello_imgui.RunnerParams):
-        if self.show_app_menu:
-            hello_imgui.show_app_menu(runner_params) # quit button
-        if self.show_view_menu:
-            hello_imgui.show_view_menu(runner_params) # status bar show/hide, docking layout reset, etc.
-        
-        # User-provided
-        self.draw_menu()
-        
-        # UI resize widget
-        
-        # Right-aligned button for locking / unlocking UI
-        T = 'L' if self.ui_locked else 'U'
-        C = [0.8, 0.0, 0.0] if self.ui_locked else [0.0, 1.0, 0.0]
-        s = self.ui_scale
-
-        # same_line() and negative sizes don't work within menu bar
-        # => use invisible button instead
-        # Tested: 16.3.2025, imgui_bundle==1.6.2
-        max_x = imgui.get_window_width()
-        cursor = imgui.get_cursor_pos()[0]
-
-        # UI scale slider
-        if not self.ui_locked:
-            pad = max_x - cursor - 300 - 30*s
-            imgui.invisible_button('##hidden', size=(pad, 1))
-            max_scale = 5
-            min_scale = 0.1
-            #max_scale = max(self.v._imgui_fonts.keys()) / self.v.default_font_size
-            #min_scale = min(self.v._imgui_fonts.keys()) / self.v.default_font_size
-            
-            imgui.set_next_item_width(300) # size not dependent on s => prevents slider drift
-            ch, val = imgui.slider_float('', s, min_scale, max_scale, format="%.1f")
-            if imgui.is_item_hovered():
-                if imgui.is_mouse_clicked(imgui.MouseButton_.right):
-                    (ch, val) = (True, 1.0)
-            
-            if ch:
-                self.set_ui_scale(val)
-        else:
-            pad = max_x - cursor - 25*s
-            imgui.invisible_button('##hidden', size=(pad, 1))
-        
-        imgui.push_style_color(imgui.Col_.text, (*C, 1))
-        if imgui.button(T, size=(20*s, 0)):
-            self.ui_locked = not self.ui_locked
-        imgui.pop_style_color()
-
-    def pre_new_frame(self):
-        """
-        Called each frame before ImGui::NewFrame().
-        Good place to add new dockable windows, modify fonts, etc.
-        """
-        pass
-    
     def __init__(
         self,
         name: str,
@@ -219,9 +64,8 @@ class DockingViewer:
         with_node_editor=False,
         with_node_editor_config=None,
         with_tex_inspect=False,
+        with_font_awesome=False,
     ):
-        # DOCS/APIs:
-
         # Immapp:
         #  immapp.run() python stub:   https://github.com/pthom/imgui_bundle/blob/v1.6.2/bindings/imgui_bundle/immapp/immapp_cpp.pyi#L162
         #  immapp.run() nanobind impl: https://github.com/pthom/imgui_bundle/blob/v1.6.2/external/immapp/bindings/pybind_immapp_cpp.cpp#L158
@@ -236,7 +80,6 @@ class DockingViewer:
         #  SCOPED_RELEASE_GIL_ON_MAIN_THREAD: https://github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/internal/backend_impls/abstract_runner.cpp#L1443
         #  fnReloadFontsIfDpiScaleChanged:    https://github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/internal/backend_impls/abstract_runner.cpp#L947
 
-
         # Start compute thread asap
         self.start_event: threading.Event = threading.Event()
         self.stop_event: threading.Event = threading.Event()
@@ -248,7 +91,6 @@ class DockingViewer:
 
         runner_params = hello_imgui.RunnerParams()
         runner_params.app_window_params.window_title = name
-        #runner_params.imgui_window_params.menu_app_title = "HLP"
         runner_params.app_window_params.window_geometry.size = (1000, 900)
         runner_params.app_window_params.restore_previous_geometry = True
         runner_params.dpi_aware_params.only_use_font_dpi_responsive = True # automatically handle font scaling
@@ -256,30 +98,29 @@ class DockingViewer:
         # Normally setting no_mouse_input windows flags on containing window is enough,
         # but docking (presumably) seems to be capturing mouse input regardless.
         self.pan_handler = PannableArea(force_mouse_capture=True)
-        self.ui_scale = 1.0
+        self._ui_scale = 1.0
         self.ui_locked = True # resize in progress?
-        self.initial_font_scale = 1.0
+        
+        # Main image (output of self.compute())
         self.image: np.ndarray = None
         self.img_dt: float = 0
         self.last_upload_dt: float = 0
         self.tex_handle: _texture = None # created after GL init
         self.state = EasyDict()
         
-        self.title_font: imgui.ImFont = None
-        self.color_font: imgui.ImFont = None
-        self.emoji_font: imgui.ImFont = None
-        self.large_icon_font: imgui.ImFont = None
+        self.initial_font_size = 15
+        self.fonts: list[hello_imgui.FontDpiResponsive] = []
         self.window: glfw._GLFWwindow = None
+        self.load_font_awesome = with_font_awesome
         
         def load_settings_cbk():
             try:
-                self.set_ui_scale(float(hello_imgui.load_user_pref('ui_scale')))
+                self.ui_scale = float(hello_imgui.load_user_pref('ui_scale'))
             except:
                 pass
             self.load_settings()
         
         def post_init_fun():
-            self.initial_font_scale = imgui.get_io().font_global_scale
             self.tex_handle = _texture(gl.GL_NEAREST, gl.GL_NEAREST)
             load_settings_cbk()
             self.setup_state()
@@ -353,6 +194,112 @@ class DockingViewer:
             with_tex_inspect=with_tex_inspect,
         )
         immapp.run(runner_params, add_ons_params=addons)
+    
+    @property
+    def ui_scale(self):
+        """UI scale getter"""
+        return self._ui_scale
+    
+    @ui_scale.setter
+    def ui_scale(self, value: float):
+        """UI scale setter"""
+        self.set_ui_scale(value)
+
+    def set_ui_scale(self, scale: float):
+        if self._ui_scale == scale:
+            return # setter might be called repeatedly e.g. via imgui.slider
+        self._ui_scale = scale
+        self.scale_style_sizes()
+        
+        # Rescale all fonts (even if they are merged)
+        for font in self.fonts:
+            font.font_size = self.ui_scale * self.initial_font_size
+        
+        self.trigger_font_reload()
+
+    # Includes keyboard (glfw.KEY_A) and mouse (glfw.MOUSE_BUTTON_LEFT)
+    def keydown(self, key: Union[int, str]):
+        raise NotImplementedError()
+    
+    def keyhit(self, key: str):
+        raise NotImplementedError()
+        
+    def scale_style_sizes(self):
+        """More conservative alternative to imgui.get_style().scale_all_sizes()"""
+        factor = self.ui_scale
+        font_size = 9 * factor #self._cur_font_size
+        spacing = round(font_size * 0.3)
+
+        s = imgui.get_style()
+        s.window_padding        = [spacing, spacing]
+        s.item_spacing          = [spacing, spacing]
+        s.item_inner_spacing    = [spacing, spacing]
+        s.columns_min_spacing   = spacing
+        s.indent_spacing        = font_size
+        s.scrollbar_size        = font_size + 4
+    
+    def _draw_menu_wrapper(self, runner_params: hello_imgui.RunnerParams):
+        if self.show_app_menu:
+            hello_imgui.show_app_menu(runner_params) # quit button
+        if self.show_view_menu:
+            hello_imgui.show_view_menu(runner_params) # status bar show/hide, docking layout reset, etc.
+        
+        # User-provided
+        self.draw_menu()
+        
+        # UI resize widget
+
+        # Right-aligned button for locking / unlocking UI
+        T = 'L' if self.ui_locked else 'U'
+        C = [0.8, 0.0, 0.0] if self.ui_locked else [0.0, 1.0, 0.0]
+        s = self.ui_scale
+
+        # same_line() and negative sizes don't work within menu bar
+        # => use invisible button instead
+        # Tested: 16.3.2025, imgui_bundle==1.6.2
+        max_x = imgui.get_window_width()
+        cursor = imgui.get_cursor_pos()[0]
+
+        # UI scale slider
+        if not self.ui_locked:
+            pad = max_x - cursor - 300 - 30*s
+            imgui.invisible_button('##hidden', size=(pad, 1))
+            max_scale = 5
+            min_scale = 0.1
+            #max_scale = max(self.v._imgui_fonts.keys()) / self.v.default_font_size
+            #min_scale = min(self.v._imgui_fonts.keys()) / self.v.default_font_size
+            
+            imgui.set_next_item_width(300) # size not dependent on s => prevents slider drift
+            ch, val = imgui.slider_float('', s, min_scale, max_scale, format="%.1f")
+            if imgui.is_item_hovered():
+                if imgui.is_mouse_clicked(imgui.MouseButton_.right):
+                    (ch, val) = (True, 1.0)
+            
+            if ch:
+                self.set_ui_scale(val)
+        else:
+            pad = max_x - cursor - 25*s
+            imgui.invisible_button('##hidden', size=(pad, 1))
+        
+        imgui.push_style_color(imgui.Col_.text, (*C, 1))
+        if imgui.button(T, size=(20*s, 0)):
+            self.ui_locked = not self.ui_locked
+        imgui.pop_style_color()
+
+    def pre_new_frame(self):
+        """
+        Called each frame before ImGui::NewFrame().
+        Good place to add new dockable windows etc.
+        """
+        pass
+
+    def trigger_font_reload(self):
+        """
+        Trigger font reload after changing font.font_size.
+        Used in conjunction with hello_imgui.load_font_dpi_responsive().
+        """
+        io = imgui.get_io()
+        io.font_global_scale = float_flip_lsb(io.font_global_scale) # trigger reload
     
     def setup_layout(self) -> hello_imgui.DockingParams:
         """
@@ -449,32 +396,26 @@ class DockingViewer:
 
         raise NotImplementedError('Not implemented')
     
+    def get_default_font(self):
+        font = Path(__file__).parent / 'MPLUSRounded1c-Medium.ttf'
+        assert font.is_file(), f'Font file missing: "{font.resolve()}"'
+        return font.as_posix()
+    
     def load_fonts(self):
-        hello_imgui.get_runner_params().callbacks.default_icon_font = hello_imgui.DefaultIconFont.font_awesome6
-        hello_imgui.imgui_default_settings.load_default_font_with_font_awesome_icons()
-
-        # Load the title font
-        self.title_font = hello_imgui.load_font("fonts/DroidSans.ttf", 18.0)
-        font_loading_params_title_icons = hello_imgui.FontLoadingParams()
-        font_loading_params_title_icons.merge_to_last_font = True
-        font_loading_params_title_icons.use_full_glyph_range = True
-        self.title_font = hello_imgui.load_font(
-            "fonts/Font_Awesome_6_Free-Solid-900.otf", 18.0, font_loading_params_title_icons)
-
-        # Load the emoji font
-        font_loading_params_emoji = hello_imgui.FontLoadingParams(use_full_glyph_range=True)
-        self.emoji_font = hello_imgui.load_font(
-            "fonts/NotoEmoji-Regular.ttf", 24.0, font_loading_params_emoji)
-
-        # Load a large icon font
-        font_loading_params_large_icon = hello_imgui.FontLoadingParams(use_full_glyph_range=True)
-        self.large_icon_font = hello_imgui.load_font(
-            "fonts/fontawesome-webfont.ttf", 24.0, font_loading_params_large_icon)
-
-        # Load a colored font
-        font_loading_params_color = hello_imgui.FontLoadingParams(load_color=True)
-        self.color_font = hello_imgui.load_font(
-            "fonts/Playbox/Playbox-FREE.otf", 24.0, font_loading_params_color)
+        # Load the main font
+        size = self.initial_font_size * self.ui_scale
+        external = hello_imgui.FontLoadingParams(inside_assets=False)
+        self.fonts.append(hello_imgui.load_font_dpi_responsive(self.get_default_font(), size, external))
+        #self.fonts.append(hello_imgui.load_font_dpi_responsive("fonts/DroidSans.ttf", size))
+        
+        # Merge with Font Awesome 6 (fontawesome.com/search?o=r&ic=free&s=solid&ip=classic)
+        # Both font handles must be kept around for resizing
+        if self.load_font_awesome:
+            # TODO: if playing with UI scale slider: due to non-default range, will eventually trigger
+            # github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/impl/hello_imgui_font.cpp#L71
+            font_loading_params_title_icons = hello_imgui.FontLoadingParams(merge_to_last_font=True, use_full_glyph_range=True)
+            self.fonts.append(hello_imgui.load_font_dpi_responsive(
+                "fonts/Font_Awesome_6_Free-Solid-900.otf", size, font_loading_params_title_icons))
     
     def update_image(self, arr):
         assert isinstance(arr, np.ndarray)
@@ -511,4 +452,34 @@ class DockingViewer:
         print('Compute thread: received stop event, exiting')
 
     def set_window_title(self, title):
+        raise NotImplementedError()
+
+    #########################
+    # User provided callbacks
+    #########################
+
+    def draw_status_bar(self):
+        pass
+
+    def draw_menu(self):
+        pass
+
+    # Perform computation, returning single np/torch image, or None
+    def compute(self):
+        pass
+
+    # Program state init
+    def setup_state(self):
+        pass
+
+    # Can be overridden
+    def setup_theme(self):
+        theme_deep_dark()
+
+    def load_settings(self):
+        """Load settings using `hello_imgui.load_user_pref(k: str)`"""
+        pass
+
+    def save_settings(self):
+        """Save settings using `hello_imgui.save_user_pref(k: str, v: str)`"""
         pass
