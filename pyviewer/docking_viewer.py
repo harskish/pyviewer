@@ -201,6 +201,13 @@ class DockingViewer:
         if imgui.button(T, size=(20*s, 0)):
             self.ui_locked = not self.ui_locked
         imgui.pop_style_color()
+
+    def pre_new_frame(self):
+        """
+        Called each frame before ImGui::NewFrame().
+        Good place to add new dockable windows, modify fonts, etc.
+        """
+        pass
     
     def __init__(
         self,
@@ -213,6 +220,23 @@ class DockingViewer:
         with_node_editor_config=None,
         with_tex_inspect=False,
     ):
+        # DOCS/APIs:
+
+        # Immapp:
+        #  immapp.run() python stub:   https://github.com/pthom/imgui_bundle/blob/v1.6.2/bindings/imgui_bundle/immapp/immapp_cpp.pyi#L162
+        #  immapp.run() nanobind impl: https://github.com/pthom/imgui_bundle/blob/v1.6.2/external/immapp/bindings/pybind_immapp_cpp.cpp#L158
+        #  immapp.run() CPP impl:      https://github.com/pthom/imgui_bundle/blob/v1.6.2/external/immapp/immapp/runner.cpp#L233
+
+        # Hello-Imgui:
+        #  hello_imgui.run() python stub:     https://github.com/pthom/imgui_bundle/blob/v1.6.2/bindings/imgui_bundle/hello_imgui.pyi#L3416
+        #  hello_imgui.run() nanobind impl:   https://github.com/pthom/imgui_bundle/blob/v1.6.2/external/hello_imgui/bindings/pybind_hello_imgui.cpp#L1761
+        #  hello_imgui.run() CPP impl:        https://github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/impl/hello_imgui.cpp#L227
+        #  AbstractRunner::Run():             https://github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/internal/backend_impls/abstract_runner.cpp#L124
+        #  PreNewFrame call:                  https://github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/internal/backend_impls/abstract_runner.cpp#L1412
+        #  SCOPED_RELEASE_GIL_ON_MAIN_THREAD: https://github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/internal/backend_impls/abstract_runner.cpp#L1443
+        #  fnReloadFontsIfDpiScaleChanged:    https://github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/internal/backend_impls/abstract_runner.cpp#L947
+
+
         # Start compute thread asap
         self.start_event: threading.Event = threading.Event()
         self.stop_event: threading.Event = threading.Event()
@@ -227,6 +251,7 @@ class DockingViewer:
         #runner_params.imgui_window_params.menu_app_title = "HLP"
         runner_params.app_window_params.window_geometry.size = (1000, 900)
         runner_params.app_window_params.restore_previous_geometry = True
+        runner_params.dpi_aware_params.only_use_font_dpi_responsive = True # automatically handle font scaling
 
         # Normally setting no_mouse_input windows flags on containing window is enough,
         # but docking (presumably) seems to be capturing mouse input regardless.
@@ -284,6 +309,7 @@ class DockingViewer:
         runner_params.callbacks.load_additional_fonts = self.load_fonts
         runner_params.callbacks.setup_imgui_style = setup_theme_cbk
         runner_params.callbacks.before_exit = save_settings_cbk
+        runner_params.callbacks.pre_new_frame = self.pre_new_frame
 
         self.show_app_menu = False
         self.show_view_menu = True
