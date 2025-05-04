@@ -21,6 +21,13 @@ from .utils import normalize_image_data, float_flip_lsb
 from .imgui_themes import theme_deep_dark
 from .easy_dict import EasyDict
 
+# Why not Python backend?
+# - No Nanovg (https://github.com/pthom/imgui_bundle/issues/259#issuecomment-2391258789)
+# - No fps throttling ("sleep mode" on inactivity)
+# - Not well supported/tested in general
+# - Probably won't get non-glfw backends
+# - CPP backend sometimes releases GIL, should be slightly more performant
+
 # Based on:
 # https://traineq.org/ImGuiBundle/emscripten/bin/demo_docking.html
 # https://github.com/pthom/imgui_bundle/blob/main/bindings/pyodide_web_demo/examples/demo_docking.py
