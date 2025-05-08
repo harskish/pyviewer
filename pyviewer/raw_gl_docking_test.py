@@ -1,8 +1,9 @@
-import os.path
 import sys
 import platform
 import OpenGL.GL as GL  # type: ignore
 
+from pyviewer import _macos_hdr_patch
+_macos_hdr_patch.use_patched()
 from imgui_bundle import imgui
 
 # FROM: https://github.com/pthom/imgui_bundle/issues/310
@@ -28,11 +29,12 @@ void main() {
 
 FRAGMENT_SHADER_SRC = """
 #version 330 core
+uniform float brightness;
 in vec3 fragColor;
 out vec4 finalColor;
 
 void main() {
-    finalColor = vec4(fragColor, 1.0);
+    finalColor = vec4(brightness*fragColor.xyz, 1.0);
 }
 """
 
@@ -119,7 +121,7 @@ def create_framebuffer(width, height):
     # Create a texture to render to
     texture = GL.glGenTextures(1)
     GL.glBindTexture(GL.GL_TEXTURE_2D, texture)
-    GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGB, width, height, 0, GL.GL_RGB, GL.GL_UNSIGNED_BYTE, None)
+    GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGB, width, height, 0, GL.GL_RGB, GL.GL_FLOAT, None) # GL_UNSIGNED_BYTE
     GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
     GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
 
@@ -149,12 +151,18 @@ def main() -> None:
         sys.exit(1)
 
     # Decide GL+GLSL versions
-    if platform.system() == "Darwin":
+    is_macos = platform.system() == "Darwin"
+    if is_macos:
         glsl_version = "#version 150"
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 2)
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)  # // 3.2+ only
-        glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, GL.GL_TRUE) 
+        glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, GL.GL_TRUE)
+
+        # Enable EDR
+        glfw.window_hint(glfw.RED_BITS, 16)
+        glfw.window_hint(glfw.GREEN_BITS, 16)
+        glfw.window_hint(glfw.BLUE_BITS, 16)
     else:
         # GL 3.0 + GLSL 130
         glsl_version = "#version 130"
@@ -220,9 +228,18 @@ def main() -> None:
     vao = create_triangle_vao()
     viewport_width, viewport_height = 800, 600
     fbo, fbo_texture = create_framebuffer(viewport_width, viewport_height)
+    u_brightness = GL.glGetUniformLocation(shader_program, 'brightness')
     
     # Main loop
     while not glfw.window_should_close(window):
+
+        max, ref, cur = _macos_hdr_patch.get_edr_range(window)
+        print(f'EDR headroom: max={max:.1f}, curr={cur:.1f}, ref={ref:.1f}')
+
+        # OpenGL not color managed, gamma seems to be getting in the way
+        max = max ** (1/2.2)
+        ref = ref ** (1/2.2)
+        cur = cur ** (1/2.2)
 
         glfw.poll_events()
 
@@ -267,6 +284,7 @@ def main() -> None:
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
 
         GL.glUseProgram(shader_program)
+        GL.glUniform1f(u_brightness, cur) # Use maximum brightness that doesn't clip
         GL.glBindVertexArray(vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
         GL.glBindVertexArray(0)
