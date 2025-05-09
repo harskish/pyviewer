@@ -10,6 +10,7 @@ import threading
 from typing import Dict
 import sys
 from sys import platform
+import ctypes
 import time
 from contextlib import contextmanager, nullcontext
 from platform import uname
@@ -22,7 +23,7 @@ from imgui_bundle.python_backends.glfw_backend import GlfwRenderer
 
 from .imgui_themes import *
 
-from .utils import normalize_image_data
+#from .utils import normalize_image_data
 
 import glfw
 glfw.ERROR_REPORTING = 'raise' # make sure errors don't get swallowed
@@ -313,10 +314,23 @@ class viewer:
         # MacOS, WSL require forward-compatible core profile
         is_wsl = 'microsoft-standard' in uname().release
         if 'darwin' in platform or is_wsl:
+            glsl_version = "#version 150"
             glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
             glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
             glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
             glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, gl.GL_TRUE)
+
+            # Enable EDR
+            glfw.window_hint(glfw.RED_BITS, 16)
+            glfw.window_hint(glfw.GREEN_BITS, 16)
+            glfw.window_hint(glfw.BLUE_BITS, 16)
+        else:
+            # GL 3.0 + GLSL 130
+            glsl_version = "#version 130"
+            # glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+            # glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 0)
+            # glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE) # // 3.2+ only
+            # glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, GL.GL_TRUE)
 
         if is_wsl:
             # https://github.com/pyimgui/pyimgui/issues/318
@@ -365,11 +379,17 @@ class viewer:
         # print('GL context:', gl.glGetString(gl.GL_VERSION).decode('utf8'))
 
         glfw.swap_interval(swap_interval) # should increase on high refresh rate monitors
-        glfw.make_context_current(None)
+        #glfw.make_context_current(None) # TODO: why?
 
         self._imgui_context = imgui.create_context()
         self._implot_context = implot.create_context()
         implot.set_imgui_context(self._imgui_context)
+
+        # Transfer window address to imgui.backends.glfw_init_for_opengl
+        window_address = ctypes.cast(self._window, ctypes.c_void_p).value
+        assert window_address is not None
+        imgui.backends.glfw_init_for_opengl(window_address, True)
+        imgui.backends.opengl3_init(glsl_version)
 
         font = self.get_default_font()
 
@@ -669,7 +689,7 @@ class viewer:
     def upload_image_torch(self, name, tensor):
         import torch
         assert isinstance(tensor, torch.Tensor)
-        tensor = normalize_image_data(tensor, 'uint8')
+        #tensor = normalize_image_data(tensor, 'uint8')
 
         with self.lock(strict=False) as l:
             if l == nullcontext: # isinstance doesn't work
@@ -682,7 +702,7 @@ class viewer:
 
     def upload_image_np(self, name, data):
         assert isinstance(data, np.ndarray)
-        data = normalize_image_data(data, 'uint8')
+        #data = normalize_image_data(data, 'uint8')
 
         with self.lock(strict=False) as l:
             if l == nullcontext: # isinstance doesn't work

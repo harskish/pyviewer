@@ -64,6 +64,7 @@ class DockingViewer:
     def __init__(
         self,
         name: str,
+        normalize=False,
         with_implot=True,
         with_implot3d=False,
         with_node_editor=False,
@@ -117,6 +118,13 @@ class DockingViewer:
         self.fonts: list[hello_imgui.FontDpiResponsive] = []
         self.window: glfw._GLFWwindow = None
         self.load_font_awesome = with_font_awesome
+
+        # Check if HDR mode has been turned on
+        from pyviewer import _macos_hdr_patch
+        self.hdr = (_macos_hdr_patch.CUR_MODE == _macos_hdr_patch.Mode.PATCHED)
+        
+        # Normalize images before showing?
+        self.normalize = normalize if not self.hdr else False
         
         def load_settings_cbk():
             try:
@@ -196,6 +204,12 @@ class DockingViewer:
             with_node_editor_config=with_node_editor_config,
             with_tex_inspect=with_tex_inspect,
         )
+
+        if self.hdr:
+            glfw.window_hint(glfw.RED_BITS, 16)
+            glfw.window_hint(glfw.GREEN_BITS, 16)
+            glfw.window_hint(glfw.BLUE_BITS, 16)
+
         immapp.run(runner_params, add_ons_params=addons)
     
     @property
@@ -432,11 +446,11 @@ class DockingViewer:
         self.code_font = hello_imgui.load_font_dpi_responsive(self.get_mono_font_path(), size, external)
         self.fonts.append(self.code_font)
     
-    def update_image(self, arr):
-        assert isinstance(arr, np.ndarray)
+    def update_image(self, *, img_hwc=None):
+        assert isinstance(img_hwc, np.ndarray)
         
         # Eventually uploaded by UI thread
-        self.image = normalize_image_data(arr, 'uint8')
+        self.image = normalize_image_data(img_hwc, img_hwc.dtype) if self.normalize else img_hwc
         self.img_dt = time.monotonic()
 
     @dockable

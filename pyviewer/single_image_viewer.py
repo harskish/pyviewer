@@ -6,6 +6,7 @@ import numpy as np
 import random
 import string
 import time
+from pyviewer import _macos_hdr_patch; _macos_hdr_patch.use_patched()
 from imgui_bundle import imgui, implot
 import glfw
 import ctypes
@@ -35,16 +36,19 @@ class VizMode(Enum):
     PLOT_DOT = 3
 
 class SingleImageViewer:
-    def __init__(self, title, key=None, dtype='uint8', vsync=True, hidden=False, pannable=True):
+    def __init__(self, title, key=None, hdr=False, normalize=True, vsync=True, hidden=False, pannable=True):
         self.title = title
         self.key = key or ''.join(random.choices(string.ascii_letters, k=100))
         self.ui_process = None
         self.vsync = vsync
+        self.hdr = hdr
+        self.normalize = normalize if not hdr else False
 
         # Images are copied to minimize critical section time.
         # With uint8 (~4x faster copies than float32), this is
         # faster than waiting for OpenGL upload (for some reason...)
-        self.dtype = dtype
+        # TODO: HDR uses float16 framebuffer, could save 50% with halfs
+        self.dtype = 'float32' if hdr else 'uint8'
         
         # Shared resources for inter-process communication
         # One shared 8k rgb buffer allocated (max size), subset written to
@@ -181,7 +185,12 @@ class SingleImageViewer:
             img_chw = None
 
         # Convert data to valid range
-        img_hwc = normalize_image_data(img_hwc)
+        if self.normalize:
+            img_hwc = normalize_image_data(img_hwc, self.dtype)
+        elif not self.hdr:
+            # Unnormalized LDR: must clip to avoid broken colors
+            maxval = 255 if self.dtype == 'uint8' else 1.0
+            img_hwc.clip(max=maxval)
 
         sz = np.prod(img_hwc.shape)
         assert sz <= np.prod(self.max_size_img), f'Image too large, max size {self.max_size_img}'

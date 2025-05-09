@@ -21,6 +21,14 @@
             "justMyCode": false
         },
         {
+            "name": "HDR test",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/hdr.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
             "name": "Docking viewer demo",
             "type": "debugpy",
             "request": "launch",

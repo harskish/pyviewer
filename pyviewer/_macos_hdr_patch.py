@@ -30,7 +30,7 @@ if is_macos and not backup.is_file():
 
 def use_patched():
     global CUR_MODE
-    if is_macos:
+    if is_macos and CUR_MODE != Mode.PATCHED:
         assert 'glfw' not in sys.modules, 'glfw already imported, cannot patch'
         assert patched.is_file(), 'Could not find patched libglfw'
         shutil.copy2(patched, orig)
@@ -38,13 +38,13 @@ def use_patched():
 
 def use_original():
     global CUR_MODE
-    if is_macos:
+    if is_macos and CUR_MODE != Mode.ORIGINAL:
         assert 'glfw' not in sys.modules, 'glfw already imported, cannot patch'
         assert backup.is_file(), 'Could not find backed-up libglfw'
         shutil.copy2(backup, orig)
         CUR_MODE = Mode.ORIGINAL
 
-def get_edr_range(glfw_window) -> tuple[float, float, float]:
+def get_edr_range(glfw_window, gamma=1) -> tuple[float, float, float]:
     """
     Queries the EDR headroom of the monitor
     Returns:
@@ -52,7 +52,7 @@ def get_edr_range(glfw_window) -> tuple[float, float, float]:
         ref_val: reference maximum rgb component value (unused?)
         cur_val: current maximum displayable value without clipping
     """
-    if not is_macos or CUR_MODE != Mode.PATCHED:
+    if CUR_MODE != Mode.PATCHED:
         return (1.0, 1.0, 1.0) # standard LDR range
     
     import glfw
@@ -87,4 +87,4 @@ def get_edr_range(glfw_window) -> tuple[float, float, float]:
     )
 
     # Return raw floats
-    return max_val.value, ref_val.value, cur_val.value
+    return max_val.value**(1/gamma), ref_val.value**(1/gamma), cur_val.value**(1/gamma)

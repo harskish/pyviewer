@@ -129,7 +129,7 @@ class PannableArea():
             H,                    # GLsizei height
             0,                    # GLint border
             gl.GL_RGBA,           # GLenum format
-            gl.GL_UNSIGNED_BYTE,  # GLenum type
+            gl.GL_FLOAT,          # GLenum type; float for HDR
             None                  # const void * data
         )
 
@@ -850,7 +850,8 @@ def normalize_image_data(img_hwc, target_dtype='uint8'):
     # ii) uint8, in [0, 255]
 
     # Convert to target dtype
-    if target_dtype == 'uint8':
+    target_dtype = np.dtype(target_dtype)
+    if target_dtype == np.uint8:
         img_hwc = img_hwc * 255 if is_fp else img_hwc
         img_hwc = np.uint8(img_hwc) if is_np else img_hwc.byte()
     else:
