@@ -49,8 +49,10 @@ class PannableArea():
         # Canvas onto which resmapled image is drawn
         self.canvas_tex = None
         self.canvas_fb = None
-        self.canvas_w = 0
-        self.canvas_h = 0
+        self.canvas_w = 0 # size in screen coordinates
+        self.canvas_h = 0 # size in screen coordinates
+        self.fb_w = 0 # size of canvas framebuffer (>1 if HDPI)
+        self.fb_h = 0 # size of canvas framebuffer (>1 if HDPI)
         self.canvas_interp = gl.GL_NEAREST
 
         # 0: standard
@@ -117,6 +119,11 @@ class PannableArea():
         self.canvas_w = W
         self.canvas_h = H
 
+        # MacOS HDPI: allocate double size framebuffer
+        hdpi_factor = glfw.get_monitor_content_scale(glfw.get_primary_monitor())[0]
+        self.fb_w = int(W * hdpi_factor)
+        self.fb_h = int(H * hdpi_factor)
+
         last_texture = gl.glGetIntegerv(gl.GL_TEXTURE_BINDING_2D)
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.canvas_tex)
 
@@ -125,8 +132,8 @@ class PannableArea():
             gl.GL_TEXTURE_2D,     # GLenum target
             0,                    # GLint level
             gl.GL_RGBA,           # GLint internalformat
-            W,                    # GLsizei width
-            H,                    # GLsizei height
+            self.fb_w,            # GLsizei width
+            self.fb_h,            # GLsizei height
             0,                    # GLint border
             gl.GL_RGBA,           # GLenum format
             gl.GL_FLOAT,          # GLenum type; float for HDR
@@ -312,7 +319,7 @@ class PannableArea():
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, self.canvas_fb)
 
         # Run shader
-        gl.glViewport(0, 0, self.canvas_w, self.canvas_h)
+        gl.glViewport(0, 0, self.fb_w, self.fb_h)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
         gl.glBindTexture(gl.GL_TEXTURE_2D, texture_in) # slot 0
         gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, 0, 4)

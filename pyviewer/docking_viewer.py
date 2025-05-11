@@ -5,7 +5,6 @@ import time
 import threading
 import time
 from typing import Union
-import threading
 
 # Some callbacks broken if imported before imgui_bundle...??
 assert 'glfw' not in sys.modules or 'imgui_bundle' in sys.modules, 'glfw should be imported after pyviewer'
@@ -52,11 +51,13 @@ def layout(pos: str):
     
     return wrapper
 
+_dockable_windows = []
 def dockable(func):
     """
     Decorator indicating that generated UI elements
     should be placed in a dockable imgui window.
     """
+    _dockable_windows.append(func.__name__)
     setattr(func, 'layout_pos', 'Dummy')
     return func
 
@@ -100,6 +101,7 @@ class DockingViewer:
         runner_params.app_window_params.window_geometry.size = (1000, 900)
         runner_params.app_window_params.restore_previous_geometry = True
         runner_params.dpi_aware_params.only_use_font_dpi_responsive = True # automatically handle font scaling
+        runner_params.fps_idling.fps_idle = 5.0
 
         # Normally setting no_mouse_input windows flags on containing window is enough,
         # but docking (presumably) seems to be capturing mouse input regardless.
@@ -110,6 +112,7 @@ class DockingViewer:
         # Main image (output of self.compute())
         self.image: np.ndarray = None
         self.img_dt: float = 0
+        self.img_shape: list = [3, 4, 4] # CHW (to match ToolbarViewer)
         self.last_upload_dt: float = 0
         self.tex_handle: _texture = None # created after GL init
         self.state = EasyDict()
@@ -117,7 +120,12 @@ class DockingViewer:
         self.initial_font_size = 15
         self.fonts: list[hello_imgui.FontDpiResponsive] = []
         self.window: glfw._GLFWwindow = None
+        self._window_title = name
+        self._orig_window_title = name
         self.load_font_awesome = with_font_awesome
+        
+        # For limiting OpenGL operations to UI thread
+        self.ui_tid = threading.get_native_id() # main thread
 
         # Check if HDR mode has been turned on
         from pyviewer import _macos_hdr_patch
@@ -134,14 +142,21 @@ class DockingViewer:
             self.load_settings()
         
         def post_init_fun():
+            #glfw.make_context_current(self.window)
+            #glfw.swap_interval(1)  # Enable vsync
             self.tex_handle = _texture(gl.GL_NEAREST, gl.GL_NEAREST)
             load_settings_cbk()
             self.setup_state()
             self.start_event.set()
 
+        def save_settings_cbk():
+            hello_imgui.save_user_pref("ui_scale", f'{self.ui_scale}')
+            self.save_settings()
+        
         def before_exit():
-            del self.tex_handle
+            save_settings_cbk()
             self.stop_event.set()
+            del self.tex_handle
         
         def add_backend_cbk(*args, **kwargs):
             # Set own glfw callbacks, will be chained by imgui
@@ -153,17 +168,16 @@ class DockingViewer:
             self.scale_style_sizes()
             self.pan_handler.clear_color = imgui.get_style().color_(imgui.Col_.window_bg) # match theme_deep_dark
 
-        def save_settings_cbk():
-            hello_imgui.save_user_pref("ui_scale", f'{self.ui_scale}')
-            self.save_settings()
+        def after_swap():
+            glfw.set_window_title(self.window, self._window_title) # from main thread
 
         runner_params.callbacks.post_init = post_init_fun
         runner_params.callbacks.before_exit = before_exit
         runner_params.callbacks.post_init_add_platform_backend_callbacks = add_backend_cbk
         runner_params.callbacks.load_additional_fonts = self.load_fonts
         runner_params.callbacks.setup_imgui_style = setup_theme_cbk
-        runner_params.callbacks.before_exit = save_settings_cbk
         runner_params.callbacks.pre_new_frame = self.pre_new_frame
+        runner_params.callbacks.after_swap = after_swap
 
         self.show_app_menu = False
         self.show_view_menu = True
@@ -196,7 +210,12 @@ class DockingViewer:
         ini_path = Path(hello_imgui.ini_folder_location(runner_params.ini_folder_type)) / runner_params.ini_filename
         print(f'INI path: {ini_path}')
 
-        glfw.init()  # needed by glfw_utils.glfw_window_hello_imgui
+        glfw.init()
+        if self.hdr:
+            glfw.window_hint(glfw.RED_BITS, 16)
+            glfw.window_hint(glfw.GREEN_BITS, 16)
+            glfw.window_hint(glfw.BLUE_BITS, 16)
+
         addons = immapp.AddOnsParams(
             with_implot=with_implot,
             with_implot3d=with_implot3d,
@@ -204,12 +223,7 @@ class DockingViewer:
             with_node_editor_config=with_node_editor_config,
             with_tex_inspect=with_tex_inspect,
         )
-
-        if self.hdr:
-            glfw.window_hint(glfw.RED_BITS, 16)
-            glfw.window_hint(glfw.GREEN_BITS, 16)
-            glfw.window_hint(glfw.BLUE_BITS, 16)
-
+        
         immapp.run(runner_params, add_ons_params=addons)
     
     @property
@@ -238,8 +252,8 @@ class DockingViewer:
     def keydown(self, key: Union[int, str]):
         raise NotImplementedError()
     
-    def keyhit(self, key: str):
-        raise NotImplementedError()
+    def keyhit(self, key: imgui.Key):
+        return imgui.is_key_pressed(key, repeat=False)
         
     def scale_style_sizes(self):
         """More conservative alternative to imgui.get_style().scale_all_sizes()"""
@@ -325,8 +339,10 @@ class DockingViewer:
         Only used initially, subsequent runs will reload previous layout.
         """
         # Find all functions with @layout decorator
-        all_funcs = [getattr(self, method_name) for method_name in dir(self) if callable(getattr(self, method_name))]
-        layout_funcs = [func for func in all_funcs if hasattr(func, 'layout_pos')]
+        # Use list of candidate names '_dockable_windows' to avoid calling getattr on properties before user state init
+        # In case of multiple instances and name collisions: must check attribute layout_pos as well
+        candidates = [getattr(self, name) for name in dir(self) if name in _dockable_windows]
+        layout_funcs = [f for f in candidates if hasattr(f, 'layout_pos')]
 
         # Creating layout from position tags seems non-trivial, ambiguous, and only affects first startup anyway.
         print('Using dummy horizontal layout')
@@ -334,7 +350,7 @@ class DockingViewer:
         # N-1 splits
         dock_names = ['MainDockSpace'] + [f'Dock{i}' for i in range(len(layout_funcs)-1)]
         splits = [hello_imgui.DockingSplit(i, n, imgui.Dir.right) for i, n in zip(dock_names[:-1], dock_names[1:])]
-        windows = [hello_imgui.DockableWindow(f.__name__, d, f, can_be_closed_=True) for f, d in zip(layout_funcs, dock_names)]
+        windows = [hello_imgui.DockableWindow(f.__name__.capitalize(), d, f, can_be_closed_=True) for f, d in zip(layout_funcs, dock_names)]
 
         return hello_imgui.DockingParams(splits, windows)
     
@@ -446,15 +462,43 @@ class DockingViewer:
         self.code_font = hello_imgui.load_font_dpi_responsive(self.get_mono_font_path(), size, external)
         self.fonts.append(self.code_font)
     
+    def get_window(self, name: str) -> hello_imgui.DockableWindow | None:
+        windows = hello_imgui.get_runner_params().docking_params.dockable_windows
+        for w in windows:
+            if w.label == name.capitalize(): # labels are capitalized
+                return w
+        print(f'No DockableWindow with label "{name}"')
+        return None
+    
+    def toggle_window(self, name: str):
+        w = self.get_window(name)
+        if w is not None:
+            w.is_visible = not w.is_visible
+    
+    def hide_window(self, name: str):
+        w = self.get_window(name)
+        if w is not None:
+            w.is_visible = False
+
+    def show_window(self, name: str):
+        w = self.get_window(name)
+        if w is not None:
+            w.is_visible = True
+    
+    def toggle_menu(self):
+        params = hello_imgui.get_runner_params().imgui_window_params
+        params.show_menu_bar = not params.show_menu_bar
+    
     def update_image(self, *, img_hwc=None):
         assert isinstance(img_hwc, np.ndarray)
         
         # Eventually uploaded by UI thread
         self.image = normalize_image_data(img_hwc, img_hwc.dtype) if self.normalize else img_hwc
+        self.img_shape = [self.image.shape[2], *self.image.shape[:2]] # shape in chw format
         self.img_dt = time.monotonic()
 
     @dockable
-    def draw_output(self):
+    def output(self):
         # Need to do upload from main thread
         if self.img_dt > self.last_upload_dt:
             self.tex_handle.upload_np(self.image)
@@ -475,14 +519,27 @@ class DockingViewer:
         while not self.stop_event.is_set():
             ret = self.compute()
             if ret is not None:
-                self.update_image(ret)
+                self.update_image(img_hwc=ret)
             time.sleep(0.01)
         
         print('Compute thread: received stop event, exiting')
 
-    def set_window_title(self, title):
-        #raise NotImplementedError()
-        pass
+    def reset_window_title(self):
+        self._window_title = self._orig_window_title
+    
+    def set_window_title(self, title, suffix=False):
+        """
+        Set window title.
+        If called from compute thread: updated later by UI thread.
+        If called from UI thread: updated immediately.
+        suffix: if True, append title as suffix to original.
+        """
+        if suffix:
+            title = f'{self._orig_window_title} - {title}'
+        self._window_title = title
+        if threading.get_native_id() == self.ui_tid:
+            # need glfw.make_context_current if calling from compute thread?
+            glfw.set_window_title(self.window, title)
 
     #########################
     # User provided callbacks

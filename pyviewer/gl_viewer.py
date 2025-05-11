@@ -123,7 +123,7 @@ class _texture:
 
         # RGB UINT8 data: no guarantee of 4-byte row alignment
         # (F32 or RGBA alignment always divisible by 4)
-        gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1) # default: 4 bytes
+        #gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1) # default: 4 bytes
 
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
         if shape[0] != self.shape[0] or shape[1] != self.shape[1] or self.is_fp != is_fp:
@@ -391,6 +391,8 @@ class viewer:
         imgui.backends.glfw_init_for_opengl(window_address, True)
         imgui.backends.opengl3_init(glsl_version)
 
+        #self.hdpi_factor = 1 / glfw.get_monitor_content_scale(glfw.get_primary_monitor())[0]
+        #imgui.get_io().font_global_scale = self.hdpi_factor
         font = self.get_default_font()
 
         # MPLUSRounded1c-Medium.ttf: no content for sizes >35
