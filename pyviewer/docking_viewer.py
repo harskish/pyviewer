@@ -46,20 +46,24 @@ def layout(pos: str):
     pos = repl.get(pos, pos)
     
     def wrapper(func):
-        setattr(func, 'layout_pos', pos)
+        setattr(func, '_layout_pos', pos)
         return func
     
     return wrapper
 
-_dockable_windows = []
-def dockable(func):
+_dockable_windows: list[tuple[int, int]] = [] # identified by (fun name, title)
+def dockable(func=None, title=''):
     """
     Decorator indicating that generated UI elements
     should be placed in a dockable imgui window.
     """
-    _dockable_windows.append(func.__name__)
-    setattr(func, 'layout_pos', 'Dummy')
-    return func
+    def wrapper(func):
+        window_title = title or func.__name__
+        _dockable_windows.append((func.__name__, window_title))
+        setattr(func, '_layout_pos', 'Dummy')
+        setattr(func, '_title', window_title)
+        return func
+    return wrapper if func is None else wrapper(func)
 
 class DockingViewer:
     def __init__(
@@ -340,9 +344,11 @@ class DockingViewer:
         """
         # Find all functions with @layout decorator
         # Use list of candidate names '_dockable_windows' to avoid calling getattr on properties before user state init
-        # In case of multiple instances and name collisions: must check attribute layout_pos as well
-        candidates = [getattr(self, name) for name in dir(self) if name in _dockable_windows]
-        layout_funcs = [f for f in candidates if hasattr(f, 'layout_pos')]
+        # In case of multiple instances and name collisions: must check attribute _layout_pos as well
+        fun_names, titles = zip(*_dockable_windows)
+        candidates = [getattr(self, name) for name in dir(self) if name in fun_names]
+        layout_funcs = [f for f in candidates if hasattr(f, '_title')]
+        assert len(titles) == len(set(titles)), 'Titles must be unique'
 
         # Creating layout from position tags seems non-trivial, ambiguous, and only affects first startup anyway.
         print('Using dummy horizontal layout')
@@ -350,7 +356,7 @@ class DockingViewer:
         # N-1 splits
         dock_names = ['MainDockSpace'] + [f'Dock{i}' for i in range(len(layout_funcs)-1)]
         splits = [hello_imgui.DockingSplit(i, n, imgui.Dir.right) for i, n in zip(dock_names[:-1], dock_names[1:])]
-        windows = [hello_imgui.DockableWindow(f.__name__.capitalize(), d, f, can_be_closed_=True) for f, d in zip(layout_funcs, dock_names)]
+        windows = [hello_imgui.DockableWindow(f._title, d, f, can_be_closed_=True) for f, d in zip(layout_funcs, dock_names)]
 
         return hello_imgui.DockingParams(splits, windows)
     
@@ -394,10 +400,10 @@ class DockingViewer:
 
         # Find all functions with @layout decorator
         all_funcs = [getattr(self, method_name) for method_name in dir(self) if callable(getattr(self, method_name))]
-        layout_funcs = [func for func in all_funcs if hasattr(func, 'layout_pos')]
+        layout_funcs = [func for func in all_funcs if hasattr(func, '_layout_pos')]
 
         # Create splits based on desired positions
-        positions = set(f.layout_pos for f in layout_funcs)
+        positions = set(f._layout_pos for f in layout_funcs)
         pos_to_dock_constr = {} # {NSEW...} => dock constructor
         main_dock = 'MainDockSpace'
 
@@ -465,7 +471,7 @@ class DockingViewer:
     def get_window(self, name: str) -> hello_imgui.DockableWindow | None:
         windows = hello_imgui.get_runner_params().docking_params.dockable_windows
         for w in windows:
-            if w.label == name.capitalize(): # labels are capitalized
+            if w.label == name:
                 return w
         print(f'No DockableWindow with label "{name}"')
         return None
@@ -497,7 +503,7 @@ class DockingViewer:
         self.img_shape = [self.image.shape[2], *self.image.shape[:2]] # shape in chw format
         self.img_dt = time.monotonic()
 
-    @dockable
+    @dockable(title='Main Output')
     def output(self):
         # Need to do upload from main thread
         if self.img_dt > self.last_upload_dt:
