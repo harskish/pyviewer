@@ -29,6 +29,14 @@
             "justMyCode": false
         },
         {
+            "name": "Texture benchmark",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/pyviewer/tex_upload_bench.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
             "name": "Docking viewer demo",
             "type": "debugpy",
             "request": "launch",
