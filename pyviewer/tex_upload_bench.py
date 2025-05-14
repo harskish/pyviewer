@@ -155,7 +155,7 @@ if __name__ == '__main__':
                     timings = []
                     block_sizes = set([H, 512, 320, 256, 240, 196, 128, 96, 80, 64, 40, 32])
                     for block_sz in [b for b in sorted(block_sizes, reverse=True) if b <= H]:
-                        storage_fmt = gl.GL_RGB
+                        storage_fmt = gl.GL_RGB if in_fmt == 'GL_RGB' else gl.GL_RGBA
                         dt_ms = test(W, H, storage_fmt, getattr(gl, in_fmt), getattr(gl, in_dtype), reallocate=False, unpack_alignment=unpack, upload_block_size=block_sz)
                         timings.append((dt_ms.item(), block_sz))
                 

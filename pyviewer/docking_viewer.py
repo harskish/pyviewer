@@ -5,6 +5,7 @@ import time
 import threading
 import time
 from typing import Union
+from functools import lru_cache
 
 # Some callbacks broken if imported before imgui_bundle...??
 assert 'glfw' not in sys.modules or 'imgui_bundle' in sys.modules, 'glfw should be imported after pyviewer'
@@ -19,6 +20,18 @@ from .toolbar_viewer import PannableArea
 from .utils import normalize_image_data, float_flip_lsb
 from .imgui_themes import theme_deep_dark
 from .easy_dict import EasyDict
+
+# Torch import is slow
+# => don't import unless already imported by calling code
+if "torch" in sys.modules:
+    import torch # for syntax highlighting
+
+def is_tensor(obj):
+    return "torch" in sys.modules and torch.is_tensor(obj)
+
+import importlib
+if not importlib.util.find_spec("torch"):
+    is_tensor = lambda obj: False
 
 # Why not Python backend?
 # - No Nanovg (https://github.com/pthom/imgui_bundle/issues/259#issuecomment-2391258789)
@@ -120,6 +133,7 @@ class DockingViewer:
         self.last_upload_dt: float = 0
         self.tex_handle: _texture = None # created after GL init
         self.state = EasyDict()
+        self.tex_upload_ms = 0.0 # gl textture upload stats
         
         self.initial_font_size = 15
         self.fonts: list[hello_imgui.FontDpiResponsive] = []
@@ -495,11 +509,35 @@ class DockingViewer:
         params = hello_imgui.get_runner_params().imgui_window_params
         params.show_menu_bar = not params.show_menu_bar
     
+    @lru_cache(maxsize=4)
+    def alpha_ch_torch(self, H, W, maxval, dtype, device):
+        """
+        Get alpha channel for padding image data to rgba.
+        Cached to speed up repeated padding of GPU tensors.
+        """
+        return maxval * torch.ones((H, W, 1), dtype=dtype, device=device)
+
     def update_image(self, *, img_hwc=None):
-        assert isinstance(img_hwc, np.ndarray)
+        is_np = isinstance(img_hwc, np.ndarray)
+        assert is_np or is_tensor(img_hwc), 'Expected np.ndarray or torch.Tensor'
         
+        is_fp = (img_hwc.dtype.kind == 'f') if is_np else img_hwc.dtype.is_floating_point
+        is_signed = (img_hwc.dtype.kind == 'i') if is_np else img_hwc.dtype.is_signed
+        dtype_bits = img_hwc.dtype.itemsize * 8
+        H, W, C = img_hwc.shape
+        
+        # RGBA texture uploads are much faster on some drivers
+        if img_hwc.shape[-1] == 3:
+            maxval = 1 if is_fp else 2**(dtype_bits - int(is_signed))
+            if is_np:
+                img_hwc = np.concatenate([img_hwc, maxval * np.ones(H, W, 1, dtype=img_hwc.dtype)])
+            else:
+                img_hwc = torch.cat([img_hwc, self.alpha_ch_torch(H, W, maxval, img_hwc.dtype, img_hwc.device)], dim=2)
+        
+        img_hwc = normalize_image_data(img_hwc, img_hwc.dtype) if self.normalize else img_hwc
+
         # Eventually uploaded by UI thread
-        self.image = normalize_image_data(img_hwc, img_hwc.dtype) if self.normalize else img_hwc
+        self.image = img_hwc # if is_np else img_hwc.cpu().numpy()
         self.img_shape = [self.image.shape[2], *self.image.shape[:2]] # shape in chw format
         self.img_dt = time.monotonic()
 
@@ -507,8 +545,18 @@ class DockingViewer:
     def output(self):
         # Need to do upload from main thread
         if self.img_dt > self.last_upload_dt:
-            self.tex_handle.upload_np(self.image)
+            t0 = time.monotonic()
+            if isinstance(self.image, np.ndarray):
+                self.tex_handle.upload_np(self.image)
+            elif self.image.device.type == 'cuda':
+                self.tex_handle.upload_torch(self.image)
+            elif self.image.device.type == 'mps':
+                #https://github.com/prabu-ram/Custom_PyTorch-Operations/blob/main/compiler.py
+                self.tex_handle.upload_mps(self.image)
+            else:
+                self.tex_handle.upload_np(self.image.cpu().numpy())
             self.last_upload_dt = time.monotonic()
+            self.tex_upload_ms = (self.last_upload_dt - t0) * 1000  # upload time stats
         
         # Reallocate if window size has changed
         if self.image is not None:

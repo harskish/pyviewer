@@ -183,12 +183,14 @@ class PannableArea():
             """
         ))
 
-        gl.glShaderSource(fragment_shader, dedent(
+        fragment_template = dedent(
             """
             #version 330
-            uniform sampler2D tex;
+            uniform sampler2DRect texRect;
+            uniform sampler2D tex2D;
             uniform ivec2 canvas_size;
             uniform ivec2 texture_size;
+            uniform int is_texture_type_rect;
             uniform int debug_mode;
             in vec2 v_texcoord;
             in vec3 v_color;
@@ -197,19 +199,25 @@ class PannableArea():
             void main()
             {
                 vec2 uv = v_texcoord;
-                vec2 tex_uv = vec2(texture_size) * uv;
-                vec2 frac = tex_uv - ivec2(tex_uv);
-                if (debug_mode == 0)
-                    color = texture(tex, uv);
-                if (debug_mode == 1)
+                if (debug_mode == 0) {
+                    vec4 colorRect = texture(texRect, uv * vec2(texture_size));
+                    vec4 color2D = texture(tex2D, uv);
+                    color = float(is_texture_type_rect) * colorRect + float(1 - is_texture_type_rect) * color2D;
+                }
+                if (debug_mode == 1) {
+                    vec2 tex_uv = vec2(texture_size) * uv;
+                    vec2 frac = tex_uv - ivec2(tex_uv);
                     color = vec4(frac.x, frac.y, 0.0, 1.0);
+                }
                 if (debug_mode == 2) {
                     // Indirect way to draw two triangles of a triangle strip in two colors
                     color = vec4(pow(v_color.x, 0.01), pow(v_color.y, 0.01), pow(v_color.z, 0.01), 1.0);
                 }
             }
             """
-        ))
+        )
+
+        gl.glShaderSource(fragment_shader, fragment_template)
 
         for prog in [vertex_shader, fragment_shader]:
             gl.glCompileShader(prog)
@@ -227,10 +235,12 @@ class PannableArea():
         self._attrib_location_pos = gl.glGetAttribLocation(self._shader_handle, "position")
         self._attrib_location_texcoord = gl.glGetAttribLocation(self._shader_handle, "texcoord")
         self._attrib_location_color = gl.glGetAttribLocation(self._shader_handle, "color")
-        self._attrib_location_tex = gl.glGetUniformLocation(self._shader_handle, "tex")
+        self._attrib_location_tex_rect = gl.glGetUniformLocation(self._shader_handle, "texRect")
+        self._attrib_location_tex2d = gl.glGetUniformLocation(self._shader_handle, "tex2D")
         self._attrib_location_xform = gl.glGetUniformLocation(self._shader_handle, "xform")
         self._attrib_location_canvas_size = gl.glGetUniformLocation(self._shader_handle, "canvas_size")
         self._attrib_location_texture_size = gl.glGetUniformLocation(self._shader_handle, "texture_size")
+        self._attrib_location_texture_is_rect_type = gl.glGetUniformLocation(self._shader_handle, "is_texture_type_rect")
         self._attrib_location_debug_mode = gl.glGetUniformLocation(self._shader_handle, "debug_mode")
 
         self._vao_handle = gl.glGenVertexArrays(1)  # bundles one or more VBOs
@@ -268,13 +278,22 @@ class PannableArea():
 
     # tW, tH = input texture size
     # cW, cH = canvas size
-    def draw_to_canvas(self, texture_in, tW, tH, cW, cH, pan_enabled=True):
-        last_texture = gl.glGetIntegerv(gl.GL_TEXTURE_BINDING_2D)
+    def draw_to_canvas(
+        self,
+        texture_in: int,
+        type_rect: bool, # GL_TEXTURE_RECTANGLE?
+        tW, tH, # texture size
+        cW, cH, # canvas size
+        pan_enabled=True,
+    ):
+        binding_type = gl.GL_TEXTURE_BINDING_RECTANGLE if type_rect else gl.GL_TEXTURE_BINDING_2D
+        last_texture = gl.glGetIntegerv(binding_type)
         last_array_buffer = gl.glGetIntegerv(gl.GL_ARRAY_BUFFER_BINDING)
         last_vertex_array = gl.glGetIntegerv(gl.GL_VERTEX_ARRAY_BINDING)
         last_framebuffer = gl.glGetInteger(gl.GL_FRAMEBUFFER_BINDING)
         last_clear_color = gl.glGetFloatv(gl.GL_COLOR_CLEAR_VALUE)
         last_viewport = gl.glGetIntegerv(gl.GL_VIEWPORT)
+        last_tex_unit = gl.glGetIntegerv(gl.GL_ACTIVE_TEXTURE) # probably matches int(gl.GL_TEXTURE0)
 
         if self.canvas_fb is None:
             self.init_gl(cW, cH)
@@ -309,10 +328,16 @@ class PannableArea():
         xform = np.transpose(xform)
 
         gl.glUseProgram(self._shader_handle)
-        gl.glUniform1i(self._attrib_location_tex, 0) # slot 0
+        gl.glUniform1i(self._attrib_location_tex_rect, 0) # slot 0
+        gl.glUniform1i(self._attrib_location_tex2d, 1) # slot 1
         gl.glUniformMatrix3fv(self._attrib_location_xform, 1, gl.GL_FALSE, xform)
         gl.glUniform2i(self._attrib_location_canvas_size, self.canvas_w, self.canvas_h)
         gl.glUniform2i(self._attrib_location_texture_size, self.tex_w, self.tex_h)
+        
+        # Metal interop returns TEXTURE_RECTANGLE by default
+        # => want to support that and normal TEXTURE_2D
+        gl.glUniform1i(self._attrib_location_texture_is_rect_type, int(type_rect))
+        
         assert self.debug_mode < self.num_debug_modes, 'Zero-indexed debug mode too large'
         gl.glUniform1i(self._attrib_location_debug_mode, self.debug_mode)
         gl.glBindVertexArray(self._vao_handle)
@@ -321,11 +346,15 @@ class PannableArea():
         # Run shader
         gl.glViewport(0, 0, self.fb_w, self.fb_h)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-        gl.glBindTexture(gl.GL_TEXTURE_2D, texture_in) # slot 0
+        texture_target = gl.GL_TEXTURE_RECTANGLE if type_rect else gl.GL_TEXTURE_2D
+        texture_unit = gl.GL_TEXTURE0 if type_rect else gl.GL_TEXTURE1
+        gl.glActiveTexture(texture_unit)
+        gl.glBindTexture(texture_target, texture_in)
         gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, 0, 4)
 
         # restore state
-        gl.glBindTexture(gl.GL_TEXTURE_2D, last_texture)
+        gl.glActiveTexture(last_tex_unit)
+        gl.glBindTexture(texture_target, last_texture)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, last_array_buffer)
         gl.glBindVertexArray(last_vertex_array)
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, last_framebuffer)
@@ -845,6 +874,7 @@ def normalize_image_data(img_hwc, target_dtype='uint8'):
     minval = 0
     
     # If outside of range: normalize to [0, 1]
+    # vmin, vmax = img_hwc._aminmax()??
     if img_hwc.max() > maxval or img_hwc.min() < minval:
         img_hwc = img_hwc.astype(np.float32) if is_np else img_hwc.float()
         img_hwc -= img_hwc.min() # min is negative
@@ -868,9 +898,6 @@ def normalize_image_data(img_hwc, target_dtype='uint8'):
     # (H, W) to (H, W, 1)
     if img_hwc.ndim == 2:
         img_hwc = img_hwc[..., None]
-
-    # Use at most 3 channels
-    img_hwc = img_hwc[:, :, :3]
 
     return img_hwc
 

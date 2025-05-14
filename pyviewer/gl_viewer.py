@@ -111,20 +111,30 @@ class _texture:
         gl.glGenerateMipmap(gl.GL_TEXTURE_2D)
         gl.glBindTexture(gl.GL_TEXTURE_2D, prev)
 
-    def upload_np(self, image):
-        shape = image.shape
-        is_fp = image.dtype.kind == 'f'
-        has_alpha = image.shape[2] == 4
-        
+    def upload_np(self, image: np.ndarray):
+        self.upload_iterable(image, image.shape, image.dtype.name)
+
+    # def upload_torch_cpu(self, image):
+    #     dtype_str = str(image.dtype).split('.')[-1]
+    #     #self.upload_iterable(image, image.shape, dtype_str) # ERR
+    #     #self.upload_iterable(image.data, image.shape, dtype_str) # ERR
+    #     #self.upload_iterable(bytearray(image), image.shape, dtype_str)
+    #     #self.upload_iterable(image, image.shape, dtype_str)
+    
+    def upload_iterable(self, data, shape, dtype_str: str):
+        has_alpha = shape[2] == 4
+        is_fp = dtype_str in ['float32', 'float16']
+
         # See upload_ptr() for description of the formats
-        internal_fmt = gl.GL_RGB32F if is_fp else gl.GL_RGB8 # how OGL stores data
-        incoming_fmt = gl.GL_RGBA if has_alpha else gl.GL_RGB  # incoming channel format
-        incoming_dtype = gl.GL_FLOAT if is_fp else gl.GL_UNSIGNED_BYTE # incoming dtype
-
-        # RGB UINT8 data: no guarantee of 4-byte row alignment
-        # (F32 or RGBA alignment always divisible by 4)
-        #gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1) # default: 4 bytes
-
+        internal_fmt = gl.GL_RGB #A if has_alpha else gl.GL_RGB # how OGL stores data
+        incoming_fmt = gl.GL_RGBA if has_alpha else gl.GL_RGB # incoming channel format
+        incoming_dtype = {
+            'float32': gl.GL_FLOAT,
+            'float16': gl.GL_HALF_FLOAT,
+            'uint8': gl.GL_UNSIGNED_BYTE,
+            'uint16': gl.GL_UNSIGNED_SHORT,
+        }[dtype_str]
+        
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
         if shape[0] != self.shape[0] or shape[1] != self.shape[1] or self.is_fp != is_fp:
             # Reallocate
@@ -139,7 +149,7 @@ class _texture:
                 0,                # GLint border
                 incoming_fmt,     # GLenum format
                 incoming_dtype,   # GLenum type
-                image,            # const void * data
+                data,             # const void * data
             )
         else:
             # Overwrite
@@ -152,12 +162,26 @@ class _texture:
                 shape[0],           # GLsizei height
                 incoming_fmt,       # GLenum format
                 incoming_dtype,     # GLenum type
-                image,              # const void * pixels
+                data,               # const void * pixels
             )
         if self.needs_mipmap:
             self.generate_mipmaps()
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
+    def upload_mps(self, img):
+        #https://github.com/prabu-ram/Custom_PyTorch-Operations/blob/main/compiler.py
+        import torch.utils.cpp_extension
+        #compiled_lib = torch.utils.cpp_extension.load(
+        #    name='CustomROIPooling',
+        #    sources=['CustomROIPooling.mm'],  # Your custom Objective-C++ file for ROI Pooling
+        #    extra_cflags=['-std=c++17'],
+        #)
+        
+        # MTLBuffer => MTLTexture => CVPixelBuffer (kCVPixelBufferOpenGLCompatibilityKey)
+        
+        # CVPixelBufferCreateWithBytes() supposedly zero-copy!
+        # => https://medium.com/lightricks-tech-blog/efficient-image-processing-in-ios-part-2-a96f0343e6f0 
+    
     def upload_torch(self, img):
         import torch
         assert img.device.type == "cuda", "Please provide a CUDA tensor"

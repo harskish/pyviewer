@@ -14,12 +14,17 @@ import sys
 import warnings
 from enum import Enum
 
-has_torch = False
-try:
-    import torch
-    has_torch = True
-except:
-    pass
+# Torch import is slow
+# => don't import unless already imported by calling code
+if "torch" in sys.modules:
+    import torch # for syntax highlighting
+
+def is_tensor(obj):
+    return "torch" in sys.modules and torch.is_tensor(obj)
+
+import importlib
+if not importlib.util.find_spec("torch"):
+    is_tensor = lambda obj: False
 
 from . import gl_viewer
 from .utils import begin_inline, normalize_image_data, reshape_grid, PannableArea
