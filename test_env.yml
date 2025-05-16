@@ -5,7 +5,8 @@ dependencies:
   - python=3.12
   - pip=23.3
   - pip:
-    - Pillow==11.1.0
+    - Pillow==11.2.1
+    - pillow-avif-plugin==1.5.2 # upcoming PIL 11.3.0 should bundle AVIF
     - matplotlib==3.10.1
     - -e .  # pyviewer itself
     - --extra-index-url https://download.pytorch.org/whl/cu124

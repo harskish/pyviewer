@@ -2,22 +2,50 @@
 
 import os
 import sys
+from platform import system
 import importlib
 from functools import cache
-from typing import Union
+from pathlib import Path
 
-@cache
 def get_plugin(
     plugin_name: str,
-    source_files: Union[tuple, str],
-    source_folder: str = '.',
-    ldflags: tuple = None,
+    source_files: list|tuple|str,
+    source_folder: str|Path = '.',
+    ldflags: list|tuple|None = None,
+    extra_cflags: list|tuple = (),
     cuda: bool = True, # can turn off if not needed
     unsafe_load_prebuilt: bool = False,
     verbose=True
 ):
+    if isinstance(source_files, list):
+        source_files = tuple(source_files)
+    if isinstance(extra_cflags, list):
+        extra_cflags = tuple(extra_cflags)
+    
+    return _get_plugin_impl(
+        plugin_name,
+        source_files,
+        source_folder,
+        ldflags,
+        extra_cflags,
+        cuda,
+        unsafe_load_prebuilt,
+        verbose,    
+    )
+
+@cache
+def _get_plugin_impl(
+    plugin_name: str,
+    source_files: tuple|str,
+    source_folder: str|Path = '.',
+    ldflags: tuple = None,
+    extra_cflags: tuple = (),
+    cuda: bool = True,
+    unsafe_load_prebuilt: bool = False,
+    verbose=True
+):
     # Make sure we can find the necessary compiler and libary binaries.
-    if os.name == 'nt':
+    if system() == 'Windows':
         lib_dir = os.path.dirname(__file__) + r"."  # TODO: this seems incorrect
         def find_cl_path():
             import glob
@@ -43,14 +71,16 @@ def get_plugin(
                 os.add_dll_directory(os.path.join(cuda_path, 'bin'))
 
     # Linker options.
-    if os.name == 'posix':
-        cflags = ['-O3', '-std=c++17']
+    if system() == 'Linux':
+        cflags = ['-O3', '-std=c++17', *extra_cflags]
         ldflags = ['-lGL', '-lGLEW', '-lEGL'] if ldflags is None else ldflags
-    elif os.name == 'nt':
+    elif system() == 'Darwin':
+        cflags = ['-O3', '-std=c++17', '-DGL_SILENCE_DEPRECATION', *extra_cflags]
+        ldflags = ['-framework OpenGL', '-framework Cocoa'] if ldflags is None else ldflags
+    elif system() == 'Windows':
         libs = ['user32', 'opengl32']
         ldflags = (['/LIBPATH:' + lib_dir] + ['/DEFAULTLIB:' + x for x in libs]) if ldflags is None else ldflags
-        cflags = ['/O2', '/DWIN32', '/std:c++17','/permissive-', '/w']
-
+        cflags = ['/O2', '/DWIN32', '/std:c++17','/permissive-', '/w', *extra_cflags]
 
     # Some containers set this to contain old architectures that won't compile. We only need the one installed in the machine.
     os.environ['TORCH_CUDA_ARCH_LIST'] = ''
@@ -84,7 +114,7 @@ def get_plugin(
     _build_dir = cpp._get_build_directory(plugin_name, False)
     assert _build_dir == build_dir, 'Torch extension build dir mismatch'
 
-    if os.name == "nt":
+    if system() == 'Windows':
         try:
             # Try to detect if a stray lock file is left in cache directory and show a warning.
             # This sometimes happens on Windows if the build is interrupted at just the right moment.

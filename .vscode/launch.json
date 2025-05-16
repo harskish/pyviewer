@@ -29,6 +29,14 @@
             "justMyCode": false
         },
         {
+            "name": "MPS interop test",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/mtl_interop.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
             "name": "Texture benchmark",
             "type": "debugpy",
             "request": "launch",
