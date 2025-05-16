@@ -4,6 +4,7 @@ import contextlib
 from io import BytesIO
 from pathlib import Path
 from functools import partial
+from types import SimpleNamespace
 import shutil
 import os
 import glfw
@@ -67,6 +68,20 @@ class PannableArea():
 
         if glfw_window is not None:
             self.set_callbacks(glfw_window)
+
+        # One shader for texture_2d, another for texture_rectangle
+        self.shader_rect = SimpleNamespace(
+            binding=gl.GL_TEXTURE_BINDING_RECTANGLE,
+            tex_type=gl.GL_TEXTURE_RECTANGLE,
+            sampler_type='sampler2DRect',
+            tex_coord='uv * vec2(texture_size)',
+        )
+        self.shader_tex2d = SimpleNamespace(
+            binding=gl.GL_TEXTURE_BINDING_2D,
+            tex_type=gl.GL_TEXTURE_2D,
+            sampler_type='sampler2D',
+            tex_coord='uv',
+        )
 
         # Precopute a few transformations
         center = np.array([
@@ -159,108 +174,6 @@ class PannableArea():
         if gl.glCheckFramebufferStatus(gl.GL_FRAMEBUFFER) != gl.GL_FRAMEBUFFER_COMPLETE:
             raise RuntimeError('Could not create framebuffer for offscreen rendering')
 
-        self._shader_handle = gl.glCreateProgram()
-        vertex_shader = gl.glCreateShader(gl.GL_VERTEX_SHADER)
-        fragment_shader = gl.glCreateShader(gl.GL_FRAGMENT_SHADER)
-        
-        gl.glShaderSource(vertex_shader, dedent(
-            """
-            #version 330
-            uniform mat3 xform;
-            layout(location = 0) in vec2 position;
-            layout(location = 1) in vec2 texcoord;
-            layout(location = 2) in vec3 color;
-            out vec2 v_texcoord;
-            out vec3 v_color;
-
-            void main()
-            {
-                v_texcoord = texcoord; // texel coords untouched
-                v_color = color;
-                vec3 pos = xform * vec3(position, 1.0);
-                gl_Position = vec4(pos.xy, 0.0, 1.0); // quad itself transformed
-            }
-            """
-        ))
-
-        fragment_template = dedent(
-            """
-            #version 330
-            uniform sampler2DRect texRect;
-            uniform sampler2D tex2D;
-            uniform ivec2 canvas_size;
-            uniform ivec2 texture_size;
-            uniform int is_texture_type_rect;
-            uniform int debug_mode;
-            in vec2 v_texcoord;
-            in vec3 v_color;
-            out vec4 color;
-
-            void main()
-            {
-                vec2 uv = v_texcoord;
-                if (debug_mode == 0) {
-                    vec4 colorRect = texture(texRect, uv * vec2(texture_size));
-                    vec4 color2D = texture(tex2D, uv);
-                    color = float(is_texture_type_rect) * colorRect + float(1 - is_texture_type_rect) * color2D;
-                }
-                if (debug_mode == 1) {
-                    vec2 tex_uv = vec2(texture_size) * uv;
-                    vec2 frac = tex_uv - ivec2(tex_uv);
-                    color = vec4(frac.x, frac.y, 0.0, 1.0);
-                }
-                if (debug_mode == 2) {
-                    // Indirect way to draw two triangles of a triangle strip in two colors
-                    color = vec4(pow(v_color.x, 0.01), pow(v_color.y, 0.01), pow(v_color.z, 0.01), 1.0);
-                }
-            }
-            """
-        )
-
-        gl.glShaderSource(fragment_shader, fragment_template)
-
-        for prog in [vertex_shader, fragment_shader]:
-            gl.glCompileShader(prog)
-            log = gl.glGetShaderInfoLog(prog)
-            if log:
-                print(log)
-
-        gl.glAttachShader(self._shader_handle, vertex_shader)
-        gl.glAttachShader(self._shader_handle, fragment_shader)
-
-        gl.glLinkProgram(self._shader_handle)
-        gl.glDeleteShader(vertex_shader)
-        gl.glDeleteShader(fragment_shader)
-        
-        self._attrib_location_pos = gl.glGetAttribLocation(self._shader_handle, "position")
-        self._attrib_location_texcoord = gl.glGetAttribLocation(self._shader_handle, "texcoord")
-        self._attrib_location_color = gl.glGetAttribLocation(self._shader_handle, "color")
-        self._attrib_location_tex_rect = gl.glGetUniformLocation(self._shader_handle, "texRect")
-        self._attrib_location_tex2d = gl.glGetUniformLocation(self._shader_handle, "tex2D")
-        self._attrib_location_xform = gl.glGetUniformLocation(self._shader_handle, "xform")
-        self._attrib_location_canvas_size = gl.glGetUniformLocation(self._shader_handle, "canvas_size")
-        self._attrib_location_texture_size = gl.glGetUniformLocation(self._shader_handle, "texture_size")
-        self._attrib_location_texture_is_rect_type = gl.glGetUniformLocation(self._shader_handle, "is_texture_type_rect")
-        self._attrib_location_debug_mode = gl.glGetUniformLocation(self._shader_handle, "debug_mode")
-
-        self._vao_handle = gl.glGenVertexArrays(1)  # bundles one or more VBOs
-        self._vbo_handle = gl.glGenBuffers(1)       # per-vertex information to be interpolated (bound as GL_ARRAY_BUFFER)
-        self._elements_handle = gl.glGenBuffers(1)  # buffer of indices into vbo (bound as GL_ELEMENT_ARRAY_BUFFER)
-        
-        gl.glBindVertexArray(self._vao_handle)
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._vbo_handle)
-        gl.glEnableVertexAttribArray(self._attrib_location_pos)
-        gl.glEnableVertexAttribArray(self._attrib_location_texcoord)
-        gl.glEnableVertexAttribArray(self._attrib_location_color)
-
-        size_float = 4
-        sizes = (2, 2, 3) # pos.xy + uv.xy + color.rgb
-        offsets = (np.cumsum((0, *sizes)) * size_float).tolist()
-        vertex_size = offsets[-1]
-        gl.glVertexAttribPointer(self._attrib_location_pos,      sizes[0], gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(offsets[0]))
-        gl.glVertexAttribPointer(self._attrib_location_texcoord, sizes[1], gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(offsets[1]))
-        gl.glVertexAttribPointer(self._attrib_location_color,    sizes[2], gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(offsets[2]))
-
         # Two static tris that form a quad
         # OpenGL 3.3: just stick to glBufferData
         # OpenGL 4.5+: could use glNamedBufferData (dynamic) or glNamedBufferStorage (static)
@@ -273,21 +186,119 @@ class PannableArea():
             +1, -1, 1, 1, 0, 1, 0,      #  2----4        +-------+           +----+           +----+     
         ], dtype=np.float32)            #           (-1, -1)   (+1, -1)   (0,1)  (1,1)   (0,0,0)  (0,1,0)
 
+        size_float = 4
+        sizes = (2, 2, 3) # pos.xy + uv.xy + color.rgb
+        offsets = (np.cumsum((0, *sizes)) * size_float).tolist()
+        vertex_size = offsets[-1]
+
+        self._vao_handle = gl.glGenVertexArrays(1)  # bundles one or more VBOs
+        self._vbo_handle = gl.glGenBuffers(1)       # per-vertex information to be interpolated (bound as GL_ARRAY_BUFFER)
+        #_elements_handle = gl.glGenBuffers(1)  # buffer of indices into vbo (bound as GL_ELEMENT_ARRAY_BUFFER)
+        gl.glBindVertexArray(self._vao_handle)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._vbo_handle)
         gl.glBufferData(gl.GL_ARRAY_BUFFER, 4 * vertex_size, vertices, gl.GL_STATIC_DRAW)
+        
+        for shader in [self.shader_tex2d, self.shader_rect]:
+            shader.program = gl.glCreateProgram()
+            vertex_shader = gl.glCreateShader(gl.GL_VERTEX_SHADER)
+            fragment_shader = gl.glCreateShader(gl.GL_FRAGMENT_SHADER)
+            
+            gl.glShaderSource(vertex_shader, dedent(
+                """
+                #version 330
+                uniform mat3 xform;
+                layout(location = 0) in vec2 position;
+                layout(location = 1) in vec2 texcoord;
+                layout(location = 2) in vec3 color;
+                out vec2 uv;
+                out vec3 v_color;
+
+                void main()
+                {
+                    uv = texcoord; // texel coords untouched
+                    v_color = color;
+                    vec3 pos = xform * vec3(position, 1.0);
+                    gl_Position = vec4(pos.xy, 0.0, 1.0); // quad itself transformed
+                }
+                """
+            ))
+
+            gl.glShaderSource(fragment_shader, dedent(
+                """
+                #version 330
+                uniform %s tex; // sampler2D or sampler2DRect
+                uniform ivec2 canvas_size;
+                uniform ivec2 texture_size;
+                uniform int debug_mode;
+                in vec2 uv;
+                in vec3 v_color;
+                out vec4 color;
+
+                void main()
+                {
+                    if (debug_mode == 0) {
+                        color = texture(tex, (%s)); // uv or (uv * texture_size)
+                    }
+                    if (debug_mode == 1) {
+                        vec2 tex_uv = vec2(texture_size) * uv;
+                        vec2 frac = tex_uv - ivec2(tex_uv);
+                        color = vec4(frac.x, frac.y, 0.0, 1.0);
+                    }
+                    if (debug_mode == 2) {
+                        // Indirect way to draw two triangles of a triangle strip in two colors
+                        color = vec4(pow(v_color.x, 0.01), pow(v_color.y, 0.01), pow(v_color.z, 0.01), 1.0);
+                    }
+                }
+                """
+            ) % (shader.sampler_type, shader.tex_coord))
+
+            for prog in [vertex_shader, fragment_shader]:
+                gl.glCompileShader(prog)
+                log = gl.glGetShaderInfoLog(prog)
+                if log:
+                    print(log)
+
+            gl.glAttachShader(shader.program, vertex_shader)
+            gl.glAttachShader(shader.program, fragment_shader)
+
+            gl.glLinkProgram(shader.program)
+            gl.glDeleteShader(vertex_shader)
+            gl.glDeleteShader(fragment_shader)
+            
+            shader.bindings = {}
+            shader.bindings['pos'] = gl.glGetAttribLocation(shader.program, "position")
+            shader.bindings['texcoord'] = gl.glGetAttribLocation(shader.program, "texcoord")
+            shader.bindings['color'] = gl.glGetAttribLocation(shader.program, "color")
+            shader.bindings['tex'] = gl.glGetUniformLocation(shader.program, "tex")
+            shader.bindings['xform'] = gl.glGetUniformLocation(shader.program, "xform")
+            shader.bindings['canvas_size'] = gl.glGetUniformLocation(shader.program, "canvas_size")
+            shader.bindings['texture_size'] = gl.glGetUniformLocation(shader.program, "texture_size")
+            shader.bindings['debug_mode'] = gl.glGetUniformLocation(shader.program, "debug_mode")
+            
+            gl.glEnableVertexAttribArray(shader.bindings['pos'])
+            gl.glEnableVertexAttribArray(shader.bindings['texcoord'])
+            gl.glEnableVertexAttribArray(shader.bindings['color'])
+            gl.glVertexAttribPointer(shader.bindings['pos'],      sizes[0], gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(offsets[0]))
+            gl.glVertexAttribPointer(shader.bindings['texcoord'], sizes[1], gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(offsets[1]))
+            gl.glVertexAttribPointer(shader.bindings['color'],    sizes[2], gl.GL_FLOAT, gl.GL_FALSE, vertex_size, ctypes.c_void_p(offsets[2]))
 
     # tW, tH = input texture size
     # cW, cH = canvas size
     def draw_to_canvas(
         self,
         texture_in: int,
-        type_rect: bool, # GL_TEXTURE_RECTANGLE?
         tW, tH, # texture size
         cW, cH, # canvas size
+        in_type=gl.GL_TEXTURE_2D,
         pan_enabled=True,
     ):
-        binding_type = gl.GL_TEXTURE_BINDING_RECTANGLE if type_rect else gl.GL_TEXTURE_BINDING_2D
-        last_texture = gl.glGetIntegerv(binding_type)
+        assert in_type in [gl.GL_TEXTURE_2D, gl.GL_TEXTURE_RECTANGLE], \
+            'Expected input type GL_TEXTURE_2D or GL_TEXTURE_RECTANGLE'
+
+        # Choose shader based on input texture type
+        shader = self.shader_rect if in_type == gl.GL_TEXTURE_RECTANGLE else self.shader_tex2d
+
+        last_texture = gl.glGetIntegerv(shader.binding)
         last_array_buffer = gl.glGetIntegerv(gl.GL_ARRAY_BUFFER_BINDING)
         last_vertex_array = gl.glGetIntegerv(gl.GL_VERTEX_ARRAY_BINDING)
         last_framebuffer = gl.glGetInteger(gl.GL_FRAMEBUFFER_BINDING)
@@ -327,34 +338,27 @@ class PannableArea():
         xform = self.get_quad_transform()
         xform = np.transpose(xform)
 
-        gl.glUseProgram(self._shader_handle)
-        gl.glUniform1i(self._attrib_location_tex_rect, 0) # slot 0
-        gl.glUniform1i(self._attrib_location_tex2d, 1) # slot 1
-        gl.glUniformMatrix3fv(self._attrib_location_xform, 1, gl.GL_FALSE, xform)
-        gl.glUniform2i(self._attrib_location_canvas_size, self.canvas_w, self.canvas_h)
-        gl.glUniform2i(self._attrib_location_texture_size, self.tex_w, self.tex_h)
-        
-        # Metal interop returns TEXTURE_RECTANGLE by default
-        # => want to support that and normal TEXTURE_2D
-        gl.glUniform1i(self._attrib_location_texture_is_rect_type, int(type_rect))
+        gl.glUseProgram(shader.program)
+        gl.glUniform1i(shader.bindings['tex'], 0) # slot 0
+        gl.glUniformMatrix3fv(shader.bindings['xform'], 1, gl.GL_FALSE, xform)
+        gl.glUniform2i(shader.bindings['canvas_size'], self.canvas_w, self.canvas_h)
+        gl.glUniform2i(shader.bindings['texture_size'], self.tex_w, self.tex_h)
         
         assert self.debug_mode < self.num_debug_modes, 'Zero-indexed debug mode too large'
-        gl.glUniform1i(self._attrib_location_debug_mode, self.debug_mode)
+        gl.glUniform1i(shader.bindings['debug_mode'], self.debug_mode)
         gl.glBindVertexArray(self._vao_handle)
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, self.canvas_fb)
 
         # Run shader
         gl.glViewport(0, 0, self.fb_w, self.fb_h)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-        texture_target = gl.GL_TEXTURE_RECTANGLE if type_rect else gl.GL_TEXTURE_2D
-        texture_unit = gl.GL_TEXTURE0 if type_rect else gl.GL_TEXTURE1
-        gl.glActiveTexture(texture_unit)
-        gl.glBindTexture(texture_target, texture_in)
+        gl.glActiveTexture(gl.GL_TEXTURE0) # slot 0
+        gl.glBindTexture(shader.tex_type, texture_in)
         gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, 0, 4)
 
         # restore state
         gl.glActiveTexture(last_tex_unit)
-        gl.glBindTexture(texture_target, last_texture)
+        gl.glBindTexture(shader.tex_type, last_texture)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, last_array_buffer)
         gl.glBindVertexArray(last_vertex_array)
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, last_framebuffer)
