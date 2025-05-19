@@ -547,14 +547,14 @@ class DockingViewer:
     def output(self):
         # Need to do upload from main thread
         if self.img_dt > self.last_upload_dt:
+            gl.glFinish()
             t0 = time.monotonic()
             if isinstance(self.image, np.ndarray):
                 self.tex_handle.upload_np(self.image)
             elif self.image.device.type == 'cuda':
                 self.tex_handle.upload_torch(self.image)
             elif self.image.device.type == 'mps':
-                #https://github.com/prabu-ram/Custom_PyTorch-Operations/blob/main/compiler.py
-                self.tex_handle.upload_mps(self.image)
+                self.tex_handle.upload_torch(self.image)
             else:
                 self.tex_handle.upload_np(self.image.cpu().numpy())
             self.last_upload_dt = time.monotonic()
@@ -564,7 +564,7 @@ class DockingViewer:
         if self.image is not None:
             tH, tW, _ = self.image.shape
             cW, cH = map(int, imgui.get_content_region_avail())
-            canvas_tex = self.pan_handler.draw_to_canvas(self.tex_handle.tex, tW, tH, cW, cH)
+            canvas_tex = self.pan_handler.draw_to_canvas(self.tex_handle.tex, tW, tH, cW, cH, self.tex_handle.type)
             imgui.image(canvas_tex, (cW, cH))
     
     def compute_loop(self):

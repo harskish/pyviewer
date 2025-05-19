@@ -49,9 +49,10 @@ setup(name='pyviewer',
     include_package_data=True,
     package_data={
         'pyviewer': [
-            '*.ttf',            # embedded fonts
-            'custom_ops/*.cpp', # custom CUDA op
-            'custom_ops/*.mm',  # custom Metal op
+            '*.ttf',              # embedded fonts
+            'custom_ops/*.cpp',   # custom CUDA op
+            'custom_ops/*.mm',    # custom Metal op
+            'custom_ops/*.metal', # custom Metal op
         ],
     },
     long_description=Path('README.md').read_text()

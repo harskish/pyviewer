@@ -114,16 +114,16 @@ def _get_plugin_impl(
     _build_dir = cpp._get_build_directory(plugin_name, False)
     assert _build_dir == build_dir, 'Torch extension build dir mismatch'
 
-    if system() == 'Windows':
-        try:
-            # Try to detect if a stray lock file is left in cache directory and show a warning.
-            # This sometimes happens on Windows if the build is interrupted at just the right moment.
-            lock_fn = os.path.join(build_dir, 'lock')
-            if os.path.exists(lock_fn):
-                print("warning: Lock file exists in build directory: '%s', removing" % lock_fn)
-                os.remove(lock_fn)
-        except:
-            pass
+    #if system() == 'Windows':
+    try:
+        # Try to detect if a stray lock file is left in cache directory and show a warning.
+        # This sometimes happens on Windows if the build is interrupted at just the right moment.
+        lock_fn = os.path.join(build_dir, 'lock')
+        if os.path.exists(lock_fn):
+            print("warning: Lock file exists in build directory: '%s', removing" % lock_fn)
+            os.remove(lock_fn)
+    except:
+        pass
     
     # Compile and load.
     original = os.getcwd()

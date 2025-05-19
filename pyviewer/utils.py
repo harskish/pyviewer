@@ -55,6 +55,7 @@ class PannableArea():
         self.fb_w = 0 # size of canvas framebuffer (>1 if HDPI)
         self.fb_h = 0 # size of canvas framebuffer (>1 if HDPI)
         self.canvas_interp = gl.GL_NEAREST
+        self.window = None # overwritten in set_callbacks
 
         # 0: standard
         # 1: fractional tex coords debug
@@ -123,8 +124,32 @@ class PannableArea():
         self.zoom = best / min(sw, sh)
         print('Scale set to:', f'1/{1/best:.0f}x' if best < 1 else f'{best:.0f}x')
     
-    def resize_canvas(self, W, H):
-        if self.canvas_w == W and self.canvas_h == H:
+    def get_monitor(self):
+        """Figure out which monitor window is currently on"""
+        x, y = glfw.get_window_pos(self.window)
+        for mon in glfw.get_monitors():
+            x0, y0, w, h = glfw.get_monitor_workarea(mon)
+            x1, y1 = (x0 + w, y0 + h)
+            if (x0 <= x <= x1) and (y0 <= y <= y1):
+                return mon
+        return glfw.get_primary_monitor()
+    
+    def get_hdpi_scale(self) -> tuple[float]:
+        """
+        Get HDPI framebuffer scale factor.
+        On MacOS external monitors: overridden to 1.0,
+        otherwise resolutions get too large on 4k monitors.
+        """
+        monitor = self.get_monitor()
+        if system() == 'Darwin':
+            monitor_name = glfw.get_monitor_name(monitor).decode()
+            if monitor_name != 'Built-in Retina Display':
+                return (1.0, 1.0)
+        
+        return glfw.get_monitor_content_scale(monitor)
+    
+    def resize_canvas(self, W, H, force=False):
+        if not force and self.canvas_w == W and self.canvas_h == H:
             return
         
         if H <= 0 or W <= 0:
@@ -134,10 +159,11 @@ class PannableArea():
         self.canvas_w = W
         self.canvas_h = H
 
-        # MacOS HDPI: allocate double size framebuffer
-        hdpi_factor = glfw.get_monitor_content_scale(glfw.get_primary_monitor())[0]
+        # HDPI: affects framebuffer scale
+        hdpi_factor = self.get_hdpi_scale()[0]
         self.fb_w = int(W * hdpi_factor)
         self.fb_h = int(H * hdpi_factor)
+        print(f'[PannableArea] Framebuffer size: {self.fb_w}x{self.fb_h} ({hdpi_factor:.1f}x)')
 
         last_texture = gl.glGetIntegerv(gl.GL_TEXTURE_BINDING_2D)
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.canvas_tex)
@@ -146,13 +172,13 @@ class PannableArea():
         gl.glTexImage2D(
             gl.GL_TEXTURE_2D,     # GLenum target
             0,                    # GLint level
-            gl.GL_RGBA,           # GLint internalformat
+            gl.GL_RGBA16F,        # GLint internalformat; float for HDR
             self.fb_w,            # GLsizei width
             self.fb_h,            # GLsizei height
             0,                    # GLint border
-            gl.GL_RGBA,           # GLenum format
-            gl.GL_FLOAT,          # GLenum type; float for HDR
-            None                  # const void * data
+            gl.GL_RGBA,           # GLenum format     (pixel transfer)
+            gl.GL_HALF_FLOAT,     # GLenum type       (pixel transfer)
+            None                  # const void * data (pixel transfer)
         )
 
         # Restore state
@@ -368,6 +394,7 @@ class PannableArea():
         return self.canvas_tex
 
     def set_callbacks(self, glfw_window):
+        self.window = glfw_window
         self.prev_scroll_cbk = glfw.set_scroll_callback(glfw_window, self.mouse_wheel_callback)
         if self.prev_scroll_cbk is None:
             print('No previous scroll callback')

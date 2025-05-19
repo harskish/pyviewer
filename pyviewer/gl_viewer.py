@@ -44,14 +44,27 @@ def cuda_synchronize():
     sync_fun()
 
 @lru_cache
-def get_pt_plugin():
+def get_cuda_plugin():
     try:
-        print('Setting up PT plugin')
+        print('Setting up CUDA PT plugin')
         from . import custom_ops
         pt_plugin = custom_ops.get_plugin('cuda_gl_interop', 'cuda_gl_interop.cpp', Path(__file__).parent / './custom_ops', unsafe_load_prebuilt=True)
         return pt_plugin
     except Exception as e:
         print('Failed to build CUDA-GL plugin:', e)
+        print('Images will be uploaded from RAM.')
+        return None
+    
+@lru_cache
+def get_mps_plugin():
+    try:
+        print('Setting up Metal PT plugin')
+        from . import custom_ops
+        mtl_plugin = custom_ops.get_plugin('MetalGLInterop', 'metal_gl_interop.mm',
+            Path(__file__).parent.parent/'pyviewer/custom_ops', cuda=False)
+        return mtl_plugin
+    except Exception as e:
+        print('Failed to build Metal-GL plugin:', e)
         print('Images will be uploaded from RAM.')
         return None
 
@@ -61,13 +74,13 @@ class PTExtMapper:
     
     def __init__(self, tex: int) -> None:
         self.tex = tex
-        self.resource = get_pt_plugin().register(tex)
+        self.resource = get_cuda_plugin().register(tex)
     
     def unregister(self) -> None:
-        get_pt_plugin().unregister(self.resource)
+        get_cuda_plugin().unregister(self.resource)
 
     def upload(self, ptr: int, W: int, H: int, N: int) -> None:
-        get_pt_plugin().upload(ptr, W, H, N, self.resource) # map, copy, unmap
+        get_cuda_plugin().upload(ptr, W, H, N, self.resource) # map, copy, unmap
 
 MIPMAP_MODES = [gl.GL_NEAREST_MIPMAP_NEAREST, gl.GL_LINEAR_MIPMAP_NEAREST, gl.GL_NEAREST_MIPMAP_LINEAR, gl.GL_LINEAR_MIPMAP_LINEAR]
 class _texture:
@@ -77,10 +90,11 @@ class _texture:
     def __init__(self, min_filter=gl.GL_LINEAR, mag_filter=gl.GL_LINEAR):
         # Can be shared between py and c++
         self.tex = gl.glGenTextures(1)
-        gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex) # need to bind to modify
+        self.type = gl.GL_TEXTURE_2D
+        gl.glBindTexture(self.type, self.tex) # need to bind to modify
         # sets repeat and filtering parameters; change the second value of any tuple to change the value
         for params in ((gl.GL_TEXTURE_WRAP_S, gl.GL_MIRRORED_REPEAT), (gl.GL_TEXTURE_WRAP_T, gl.GL_MIRRORED_REPEAT), (gl.GL_TEXTURE_MIN_FILTER, min_filter), (gl.GL_TEXTURE_MAG_FILTER, mag_filter)):
-            gl.glTexParameteri(gl.GL_TEXTURE_2D, *params)
+            gl.glTexParameteri(self.type, *params)
         self.min_filter = min_filter
         self.mag_filter = mag_filter
         self.mapper = None  # torch extension cudaGraphicsResource_t
@@ -97,29 +111,23 @@ class _texture:
         return self.min_filter in MIPMAP_MODES or self.mag_filter in MIPMAP_MODES
 
     def set_interp(self, key, val):
-        gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, key, val)
-        gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+        gl.glBindTexture(self.type, self.tex)
+        gl.glTexParameteri(self.type, key, val)
+        gl.glBindTexture(self.type, 0)
         if key == gl.GL_TEXTURE_MIN_FILTER:
             self.min_filter = val
         if key == gl.GL_TEXTURE_MAG_FILTER:
             self.mag_filter = val
 
     def generate_mipmaps(self):
-        prev = gl.glGetInteger(gl.GL_TEXTURE_BINDING_2D)
-        gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
-        gl.glGenerateMipmap(gl.GL_TEXTURE_2D)
-        gl.glBindTexture(gl.GL_TEXTURE_2D, prev)
+        if self.type == gl.GL_TEXTURE_2D:
+            prev = gl.glGetInteger(gl.GL_TEXTURE_BINDING_2D)
+            gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
+            gl.glGenerateMipmap(gl.GL_TEXTURE_2D)
+            gl.glBindTexture(gl.GL_TEXTURE_2D, prev)
 
     def upload_np(self, image: np.ndarray):
         self.upload_iterable(image, image.shape, image.dtype.name)
-
-    # def upload_torch_cpu(self, image):
-    #     dtype_str = str(image.dtype).split('.')[-1]
-    #     #self.upload_iterable(image, image.shape, dtype_str) # ERR
-    #     #self.upload_iterable(image.data, image.shape, dtype_str) # ERR
-    #     #self.upload_iterable(bytearray(image), image.shape, dtype_str)
-    #     #self.upload_iterable(image, image.shape, dtype_str)
     
     def upload_iterable(self, data, shape, dtype_str: str):
         has_alpha = shape[2] == 4
@@ -135,6 +143,7 @@ class _texture:
             'uint16': gl.GL_UNSIGNED_SHORT,
         }[dtype_str]
         
+        self.type = gl.GL_TEXTURE_2D
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
         if shape[0] != self.shape[0] or shape[1] != self.shape[1] or self.is_fp != is_fp:
             # Reallocate
@@ -169,28 +178,27 @@ class _texture:
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
 
     def upload_mps(self, img):
-        #https://github.com/prabu-ram/Custom_PyTorch-Operations/blob/main/compiler.py
-        import torch.utils.cpp_extension
-        #compiled_lib = torch.utils.cpp_extension.load(
-        #    name='CustomROIPooling',
-        #    sources=['CustomROIPooling.mm'],  # Your custom Objective-C++ file for ROI Pooling
-        #    extra_cflags=['-std=c++17'],
-        #)
-        
-        # MTLBuffer => MTLTexture => CVPixelBuffer (kCVPixelBufferOpenGLCompatibilityKey)
-        
-        # CVPixelBufferCreateWithBytes() supposedly zero-copy!
-        # => https://medium.com/lightricks-tech-blog/efficient-image-processing-in-ios-part-2-a96f0343e6f0 
+        plugin = get_mps_plugin()
+        if plugin is None:
+            return self.upload_np(img.detach().cpu().numpy())
+    
+        self.type = gl.GL_TEXTURE_RECTANGLE # Metal-GL interop doesn't support TEXTURE_2D
+        self.tex, ch = plugin.gl_tex_rect(img)
+        if ch:
+            self.set_interp(gl.GL_TEXTURE_MIN_FILTER, self.min_filter)
+            self.set_interp(gl.GL_TEXTURE_MAG_FILTER, self.mag_filter)
     
     def upload_torch(self, img):
         import torch
-        assert img.device.type == "cuda", "Please provide a CUDA tensor"
         assert img.ndim == 3, "Please provide a HWC tensor"
         assert img.shape[2] < min(img.shape[0], img.shape[1]), "Please provide a HWC tensor"
-        assert img.dtype in [torch.float32, torch.uint8], 'Only fp32 and u8 supported'
-
-        if get_pt_plugin() is None:
+        if img.device.type == 'mps':
+            return self.upload_mps(img)
+        
+        if get_cuda_plugin() is None:
             return self.upload_np(img.detach().cpu().numpy())
+        
+        assert img.dtype in [torch.float32, torch.uint8], 'CUDA interop: only fp32 and u8 supported'
         
         # OpenGL stores RGBA-strided data always
         # Must add alpha for gpu memcopy to work
@@ -198,6 +206,7 @@ class _texture:
             alpha = 255 if img.dtype == torch.uint8 else 1.0
             img = torch.cat((img, alpha*torch.ones_like(img[:, :, :1])), dim=-1)
 
+        self.type = gl.GL_TEXTURE_2D
         img = img.contiguous()
         self.upload_ptr(img.data_ptr(), img.shape, img.dtype.is_floating_point)
         if self.needs_mipmap:
@@ -205,7 +214,7 @@ class _texture:
 
     # Copy from cuda pointer
     def upload_ptr(self, ptr, shape, is_fp32):
-        assert get_pt_plugin() is not None, 'PT plugin needed for pointer upload'
+        assert get_cuda_plugin() is not None, 'PT plugin needed for pointer upload'
         has_alpha = shape[-1] == 4
 
         # Reallocate if shape changed or data type changed from np to torch
@@ -705,9 +714,8 @@ class viewer:
         
         import torch
         assert torch.is_tensor(data), 'Unknown image type (expected np.ndarray or torch.Tensor)'
-        if data.device.type in ['mps', 'cpu']:
-            # would require gl-metal interop or metal UI backend
-            return self.upload_image_np(name, data.cpu().numpy())
+        if data.device.type == 'cpu':
+            return self.upload_image_np(name, data.numpy())
         else:
             return self.upload_image_torch(name, data)
 
@@ -715,7 +723,6 @@ class viewer:
     def upload_image_torch(self, name, tensor):
         import torch
         assert isinstance(tensor, torch.Tensor)
-        #tensor = normalize_image_data(tensor, 'uint8')
 
         with self.lock(strict=False) as l:
             if l == nullcontext: # isinstance doesn't work
@@ -728,12 +735,10 @@ class viewer:
 
     def upload_image_np(self, name, data):
         assert isinstance(data, np.ndarray)
-        #data = normalize_image_data(data, 'uint8')
 
         with self.lock(strict=False) as l:
             if l == nullcontext: # isinstance doesn't work
                 return
-            #cuda_synchronize()
             if not self.quit:
                 if name not in self._images:
                     self._images[name] = _texture(self.tex_interp_mode_min, self.tex_interp_mode_mag)
