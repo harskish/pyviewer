@@ -22,7 +22,7 @@ if "torch" in sys.modules:
 def is_tensor(obj):
     return "torch" in sys.modules and torch.is_tensor(obj)
 
-import importlib
+import importlib.util
 if not importlib.util.find_spec("torch"):
     is_tensor = lambda obj: False
 
@@ -169,18 +169,14 @@ class SingleImageViewer:
 
         # Activate image mode
         self.viz_mode.value = VizMode.IMAGE.value
-        
-        if not has_torch:
-            assert isinstance(img_hwc, (type(None), np.ndarray)), 'PyTorch not available, only numpy arrays supported'
-            assert isinstance(img_chw, (type(None), np.ndarray)), 'PyTorch not available, only numpy arrays supported'
 
         assert img_hwc is not None or img_chw is not None, 'Must provide img_hwc or img_chw'
         assert img_hwc is None or img_chw is None, 'Cannot provide both img_hwc and img_chw'
 
-        if has_torch and torch.is_tensor(img_hwc):
+        if is_tensor(img_hwc):
             img_hwc = img_hwc.detach().cpu().numpy()
 
-        if has_torch and torch.is_tensor(img_chw):
+        if is_tensor(img_chw):
             img_chw = img_chw.detach().cpu().numpy()
 
         # Convert chw to hwc, if provided
@@ -221,10 +217,10 @@ class SingleImageViewer:
         
         assert x is not None or y is not None, 'Must provide data for x or y axis'
 
-        if has_torch and torch.is_tensor(x):
+        if is_tensor(x):
             x = x.detach().cpu().numpy()
         
-        if has_torch and torch.is_tensor(y):
+        if is_tensor(y):
             y = y.detach().cpu().numpy()
         
         # Convert lists to np arrays
