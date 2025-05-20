@@ -29,7 +29,7 @@ if "torch" in sys.modules:
 def is_tensor(obj):
     return "torch" in sys.modules and torch.is_tensor(obj)
 
-import importlib
+import importlib.util
 if not importlib.util.find_spec("torch"):
     is_tensor = lambda obj: False
 
@@ -530,7 +530,7 @@ class DockingViewer:
         if img_hwc.shape[-1] == 3:
             maxval = 1 if is_fp else 2**(dtype_bits - int(is_signed))
             if is_np:
-                img_hwc = np.concatenate([img_hwc, maxval * np.ones(H, W, 1, dtype=img_hwc.dtype)])
+                img_hwc = np.concatenate([img_hwc, maxval * np.ones((H, W, 1), dtype=img_hwc.dtype)], axis=-1)
             else:
                 img_hwc = torch.cat([img_hwc, self.alpha_ch_torch(H, W, maxval, img_hwc.dtype, img_hwc.device)], dim=2)
         
