@@ -125,6 +125,7 @@ class DockingViewer:
         self.pan_handler = PannableArea(force_mouse_capture=True)
         self._ui_scale = 1.0
         self.ui_locked = True # resize in progress?
+        self.first_frame = True # e.g. imgui.set_scroll_size wonky on first frame
         
         # Main image (output of self.compute())
         self.image: np.ndarray = None
@@ -187,6 +188,7 @@ class DockingViewer:
             self.pan_handler.clear_color = imgui.get_style().color_(imgui.Col_.window_bg) # match theme_deep_dark
 
         def after_swap():
+            self.first_frame = False
             glfw.set_window_title(self.window, self._window_title) # from main thread
 
         runner_params.callbacks.post_init = post_init_fun
