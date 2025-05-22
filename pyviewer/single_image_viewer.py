@@ -6,11 +6,10 @@ import numpy as np
 import random
 import string
 import time
-from pyviewer import _macos_hdr_patch; _macos_hdr_patch.use_patched()
+import sys
 from imgui_bundle import imgui, implot
 import glfw
 import ctypes
-import sys
 import warnings
 from enum import Enum
 
@@ -97,10 +96,12 @@ class SingleImageViewer:
         self._start()
 
     # Called from main thread, waits until viewer is visible
-    def wait_for_startup(self, timeout=15):
-        t0 = time.time()
-        while time.time() - t0 < timeout and not self.started.value:
+    def wait_for_startup(self, timeout=10):
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < timeout and not self.started.value:
             time.sleep(1/10)
+        if not self.started.value:
+            print(f'SIV: wait_for_startup timed out ({timeout}s)')
 
     # Called from main thread, loops until viewer window is closed
     def wait_for_close(self):

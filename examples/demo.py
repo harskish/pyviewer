@@ -27,11 +27,6 @@ class Test(ToolbarViewer):
         self.state.seed = 0
         self.state.img = None
     
-    def check_output(self, t):
-        # Don't accidentally test numpy fallback
-        if has_torch and torch.is_tensor(t):
-            assert pyviewer.gl_viewer.has_pycuda, 'GL-compatible PyCUDA not installed'            
-    
     def compute(self):
         # Prime width, for testing GL_UNPACK_ALIGNMENT
         W = 257
@@ -54,9 +49,8 @@ class Test(ToolbarViewer):
         img = np.uint8(255*np.clip(img, 0, 1))
 
         # As torch tensor?
-        #img = torch.from_numpy(img).to('cuda')
+        # img = torch.from_numpy(img).to('mps')
 
-        self.check_output(img)
         self.state.img = img
         return self.state.img
     

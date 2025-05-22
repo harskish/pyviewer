@@ -201,7 +201,7 @@ class ToolbarViewer:
         # Create imgui.image from provided data
         if tex_in is not None:
             canvas_size = (cW, cH)
-            tex = self.pan_handler.draw_to_canvas(tex_in.tex, tex_in.shape[1], tex_in.shape[0], *canvas_size, self.pan_enabled)
+            tex = self.pan_handler.draw_to_canvas(tex_in.tex, tex_in.shape[1], tex_in.shape[0], *canvas_size, pan_enabled=self.pan_enabled)
             imgui.image(tex, canvas_size) # uv0?
 
         # Imgui.image, i.e. (pannable) canvas, drawn above

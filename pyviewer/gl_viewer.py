@@ -134,7 +134,7 @@ class _texture:
         is_fp = dtype_str in ['float32', 'float16']
 
         # See upload_ptr() for description of the formats
-        internal_fmt = gl.GL_RGB #A if has_alpha else gl.GL_RGB # how OGL stores data
+        internal_fmt = gl.GL_RGBA # if has_alpha else gl.GL_RGB # how OGL stores data
         incoming_fmt = gl.GL_RGBA if has_alpha else gl.GL_RGB # incoming channel format
         incoming_dtype = {
             'float32': gl.GL_FLOAT,
@@ -142,6 +142,11 @@ class _texture:
             'uint8': gl.GL_UNSIGNED_BYTE,
             'uint16': gl.GL_UNSIGNED_SHORT,
         }[dtype_str]
+
+        # RGB UINT8 data: no guarantee of 4-byte row alignment
+        # (F32 or RGBA alignment always divisible by 4)
+        alignment = 4 if (is_fp or has_alpha) else 1
+        gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, alignment) # default: 4 bytes
         
         self.type = gl.GL_TEXTURE_2D
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
