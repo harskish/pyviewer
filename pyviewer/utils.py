@@ -137,16 +137,16 @@ class PannableArea():
     def get_hdpi_scale(self) -> tuple[float]:
         """
         Get HDPI framebuffer scale factor.
-        On MacOS external monitors: overridden to 1.0,
-        otherwise resolutions get too large on 4k monitors.
+        OS scale returned forbuilt-in display on MacBook (otherwise output looks blurry).
+        For other platforms, the native scale is used.
         """
-        monitor = self.get_monitor()
         if system() == 'Darwin':
+            monitor = self.get_monitor()
             monitor_name = glfw.get_monitor_name(monitor).decode()
-            if monitor_name != 'Built-in Retina Display':
-                return (1.0, 1.0)
+            if monitor_name == 'Built-in Retina Display':
+                return glfw.get_monitor_content_scale(monitor)
         
-        return glfw.get_monitor_content_scale(monitor)
+        return (1.0, 1.0)
     
     def resize_canvas(self, W, H, force=False):
         if not force and self.canvas_w == W and self.canvas_h == H:
