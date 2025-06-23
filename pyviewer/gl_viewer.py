@@ -89,7 +89,8 @@ class _texture:
     '''
     def __init__(self, min_filter=gl.GL_LINEAR, mag_filter=gl.GL_LINEAR):
         # Can be shared between py and c++
-        self.tex = gl.glGenTextures(1)
+        self.tex_2d = gl.glGenTextures(1)
+        self.tex = self.tex_2d # currently active
         self.type = gl.GL_TEXTURE_2D
         gl.glBindTexture(self.type, self.tex) # need to bind to modify
         # sets repeat and filtering parameters; change the second value of any tuple to change the value
@@ -148,7 +149,10 @@ class _texture:
         alignment = 4 if (is_fp or has_alpha) else 1
         gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, alignment) # default: 4 bytes
         
+        # Make sure tex2d is active
+        self.tex = self.tex_2d
         self.type = gl.GL_TEXTURE_2D
+        
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex)
         if shape[0] != self.shape[0] or shape[1] != self.shape[1] or self.is_fp != is_fp:
             # Reallocate
