@@ -134,6 +134,11 @@ class _texture:
         has_alpha = shape[2] == 4
         is_fp = dtype_str in ['float32', 'float16']
 
+        # Needed when alternating between CUDA and numpy
+        if self.mapper is not None:
+            self.mapper.unregister()
+            self.mapper = None
+
         # See upload_ptr() for description of the formats
         internal_fmt = gl.GL_RGBA # if has_alpha else gl.GL_RGB # how OGL stores data
         incoming_fmt = gl.GL_RGBA if has_alpha else gl.GL_RGB # incoming channel format
