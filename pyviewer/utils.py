@@ -10,8 +10,9 @@ import os
 import glfw
 import random
 import string
-import struct
 import time
+import struct
+from ctypes import c_float
 from textwrap import dedent
 from functools import wraps
 from platform import system
@@ -937,6 +938,10 @@ def float_flip_lsb(v: float) -> float:
     binary = struct.unpack('!I', struct.pack('!f', v))[0] # '!' means big-endian
     binary ^= 1 # flip the least significant bit
     return struct.unpack('!f', struct.pack('!I', binary))[0]
+
+def cfloat(v: float):
+    """Round python float to closest fp32 value"""
+    return c_float(v).value
 
 def rate_limit(T, default=None, delay=0):
     """

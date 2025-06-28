@@ -1,6 +1,6 @@
 from imgui_bundle import imgui
-from pyviewer.utils import enum_slider, combo_box_vals, slider_range_int, slider_range_float, strict_dataclass
-from typing import Tuple, Callable
+from pyviewer.utils import enum_slider, combo_box_vals, slider_range_int, slider_range_float, strict_dataclass, cfloat
+from typing import Callable, List #Tuple
 
 """ Small param wrappers for automatically creating UI widgets """
 
@@ -101,8 +101,8 @@ class IntParam(_RangeParam):
         return changed, val
 
 class Int2Param(_Range2Param):
-    def __init__(self, label, default_val: Tuple[int], minval, maxval, overlap: bool = True, tooltip: str = None) -> None:
-        super().__init__(Tuple[int], label, default_val, minval, maxval, overlap, tooltip)
+    def __init__(self, label, default_val: List[int], minval, maxval, overlap: bool = True, tooltip: str = None) -> None:
+        super().__init__(List[int], label, list(default_val), minval, maxval, overlap, tooltip)
     
     def draw_widget(self):
         if not self.overlap:
@@ -111,15 +111,15 @@ class Int2Param(_Range2Param):
             return imgui.slider_int2(self.label, self.value, self.min, self.max)
         
 class Int3Param(_Range3Param):
-    def __init__(self, label, default_val: Tuple[int], minval, maxval, tooltip: str = None) -> None:
-        super().__init__(Tuple[int], label, default_val, minval, maxval, tooltip)
+    def __init__(self, label, default_val: List[int], minval, maxval, tooltip: str = None) -> None:
+        super().__init__(List[int], label, list(default_val), minval, maxval, tooltip)
     
     def draw_widget(self):
         return imgui.slider_int3(self.label, self.value, self.min, self.max)
 
 class FloatParam(_RangeParam):
     def __init__(self, label, default_val: float, minval, maxval, log=False, tooltip: str = None) -> None:
-        super().__init__(float, label, default_val, minval, maxval, tooltip)
+        super().__init__(float, label, cfloat(default_val), minval, maxval, tooltip)
         self.log = log
     
     def draw_widget(self):
@@ -127,8 +127,8 @@ class FloatParam(_RangeParam):
         return imgui.slider_float(self.label, self.value, self.min, self.max, flags=flags)
     
 class Float2Param(_Range2Param):
-    def __init__(self, label, default_val: Tuple[float], minval, maxval, overlap: bool = True, tooltip: str = None) -> None:
-        super().__init__(Tuple[float], label, default_val, minval, maxval, overlap, tooltip)
+    def __init__(self, label, default_val: List[float], minval, maxval, overlap: bool = True, tooltip: str = None) -> None:
+        super().__init__(List[float], label, [cfloat(v) for v in default_val], minval, maxval, overlap, tooltip)
     
     def draw_widget(self):
         if not self.overlap:
@@ -137,8 +137,8 @@ class Float2Param(_Range2Param):
             return imgui.slider_float2(self.label, self.value, self.min, self.max)
         
 class Float3Param(_Range3Param):
-    def __init__(self, label, default_val: Tuple[float], minval, maxval, tooltip: str = None) -> None:
-        super().__init__(Tuple[float], label, default_val, minval, maxval, tooltip)
+    def __init__(self, label, default_val: List[float], minval, maxval, tooltip: str = None) -> None:
+        super().__init__(List[float], label, [cfloat(v) for v in default_val], minval, maxval, tooltip)
     
     def draw_widget(self):
         return imgui.slider_float3(self.label, self.value, self.min, self.max)
