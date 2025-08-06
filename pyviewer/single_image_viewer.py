@@ -309,8 +309,8 @@ class SingleImageViewer:
         if self.paused.value:
             imgui.push_font(v._imgui_fonts[30])
             dl = imgui.get_window_draw_list()
-            dl.add_rect_filled((5, 8), (115, 43), imgui.get_color_u32_rgba(0,0,0,1))
-            dl.add_text(20, 10, imgui.get_color_u32_rgba(1,1,1,1), 'PAUSED')
+            dl.add_rect_filled((5, 8), (115, 43), imgui.color_convert_float4_to_u32([0,0,0,1]))
+            dl.add_text((20, 10), imgui.color_convert_float4_to_u32([1,1,1,1]), 'PAUSED')
             imgui.pop_font()
             time.sleep(1/20) # <= real speedup of pausing comes from here
 
