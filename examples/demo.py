@@ -29,27 +29,30 @@ class Test(ToolbarViewer):
     
     def compute(self):
         # Prime width, for testing GL_UNPACK_ALIGNMENT
-        W = 257
-        H = 199
+        W = 4096 #257
+        H = 4096 #199
         
         # Float gradient in [0, 1]
-        l1 = np.linspace(0, 1, max(H, W), dtype=np.float32)
-        l2 = np.linspace(1, 0, max(H, W), dtype=np.float32)
+        device = 'cuda'
+        l1 = torch.linspace(0, 1, max(H, W), device=device)
+        l2 = torch.linspace(1, 0, max(H, W), device=device)
         grad_r = l1.reshape(-1, 1) * l1.reshape(1, -1)
         grad_g = l1.reshape(-1, 1) * l2.reshape(1, -1)
         grad_b = l2.reshape(-1, 1) * l1.reshape(1, -1)
-        img = np.stack((grad_r, grad_b, grad_g), axis=-1) # [256, 256, 3]
+        img = torch.stack((grad_r, grad_b, grad_g), -1) # [256, 256, 3]
         img = img[:H, :W, :]
 
         # Add noise
-        rand = np.random.RandomState(seed=self.state.seed)
-        img += 0.15 * rand.randn(*img.shape).astype(np.float32)
+        #rand = np.random.RandomState(seed=self.state.seed)
+        #img += 0.15 * rand.randn(*img.shape).astype(np.float32)
+        gen = torch.Generator(device).manual_seed(self.state.seed)
+        img += 0.15 * torch.randn(img.shape, generator=gen, device=device)
 
         # TEST: to uint8
-        img = np.uint8(255*np.clip(img, 0, 1))
+        #img = np.uint8(255*np.clip(img, 0, 1))
 
-        # As torch tensor?
-        # img = torch.from_numpy(img).to('mps')
+        # Async viewer
+        #siv.draw(img_hwc=img)
 
         self.state.img = img
         return self.state.img
@@ -63,6 +66,9 @@ class Test(ToolbarViewer):
         imgui.separator()
         imgui.text('Async viewer: separate process,\nwon\'t freeze if breakpoint is hit.')
 
+        if not siv.inst.hidden:
+            siv.draw(img_hwc=self.state.img)
+        
         if siv.inst.hidden:
             if imgui.button('Open async viewer'):
                 print('Opening...')

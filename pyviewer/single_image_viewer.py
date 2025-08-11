@@ -13,6 +13,9 @@ import ctypes
 import warnings
 from enum import Enum
 
+# For CUDA tensor sharing between processes
+import torch.multiprocessing
+
 # Torch import is slow
 # => don't import unless already imported by calling code
 if "torch" in sys.modules:
@@ -39,8 +42,16 @@ class VizMode(Enum):
     PLOT_LINE_DOT = 2
     PLOT_DOT = 3
 
+class ImgType(Enum):
+    EMPTY = 0 # no buffered image
+    NUMPY = 1 # numpy image (via self.shared_buffer_img)
+    CUDA = 2  # CUDA tensor in shared memory
+
 class SingleImageViewer:
     def __init__(self, title, key=None, hdr=False, normalize=True, vsync=True, hidden=False, pannable=True):
+        self._dbg_timestamp = time.monotonic_ns()
+        print(f'Main proc: _dbg_timestamp={self._dbg_timestamp}, self={id(self)}')
+        
         self.title = title
         self.key = key or ''.join(random.choices(string.ascii_letters, k=100))
         self.ui_process = None
@@ -61,6 +72,11 @@ class SingleImageViewer:
         ctype = ctypes.c_uint8 if self.dtype == 'uint8' else ctypes.c_float
         self.shared_buffer_img = mp.Array(ctype, np.prod(self.max_size_img).item())
 
+        # CUDA tensors can be shared without CPU round trip
+        #self._torch_mp_queue = None # lazily initialized (torch import slow)
+        self.mp_queue = mp.Queue() # for lazily transferring torch.mp.Queue handle
+        self.torch_mp_queue = torch.multiprocessing.Queue(maxsize=1)
+
         # Plotting mode: max size 1M floats per axis
         self.max_size_plot = 1_000_000
         self.shared_buffer_plot = mp.Array(ctypes.c_float, 2*self.max_size_plot)
@@ -76,7 +92,7 @@ class SingleImageViewer:
         
         # Scalar values updated atomically
         self.should_quit = mp.Value('i', 0)
-        self.has_new_img = mp.Value('i', 0)
+        self.buffered_img_type = mp.Value('i', ImgType.EMPTY.value)
         
         # Image or plot
         self.viz_mode = mp.Value('i', VizMode.IMAGE.value)
@@ -94,6 +110,12 @@ class SingleImageViewer:
         self.started = mp.Value(ctypes.c_bool, False, lock=False)
 
         self._start()
+
+    #def get_torch_mp_queue(self) -> torch.multiprocessing.Queue:
+    #    if self._torch_mp_queue is None:
+    #        import torch
+    #        self._torch_mp_queue = torch.multiprocessing.Queue()
+    #    return self._torch_mp_queue
 
     # Called from main thread, waits until viewer is visible
     def wait_for_startup(self, timeout=10):
@@ -122,6 +144,8 @@ class SingleImageViewer:
             self.wait_for_startup()
 
     def _start(self):
+        # 'self' gets serialized, then passed to LightProcess
+        # => mp.Value / mp.Array / mp.Queue handle synchronization & communication between the copies
         self.started.value = False
         self.ui_process = lp.LightProcess(target=self.process_func) # won't import __main__
         self.ui_process.start()
@@ -136,10 +160,7 @@ class SingleImageViewer:
         self.ui_process.join()
 
     def process_func(self):
-        # Avoid double cuda init issues
-        # (single image viewer cannot use GPU memory anyway)
-        gl_viewer.has_pycuda = False
-        gl_viewer.cuda_synchronize = lambda : None
+        print(f'Process func: _dbg_timestamp={self._dbg_timestamp}, self={id(self)}')
         
         v = gl_viewer.viewer(self.title, swap_interval=int(self.vsync), hidden=self.hidden.value)
         v._window_hidden = self.hidden.value
@@ -175,10 +196,10 @@ class SingleImageViewer:
         assert img_hwc is None or img_chw is None, 'Cannot provide both img_hwc and img_chw'
 
         if is_tensor(img_hwc):
-            img_hwc = img_hwc.detach().cpu().numpy()
+            img_hwc = img_hwc.detach()#.cpu().numpy()
 
         if is_tensor(img_chw):
-            img_chw = img_chw.detach().cpu().numpy()
+            img_chw = img_chw.detach()#.cpu().numpy()
 
         # Convert chw to hwc, if provided
         # If grayscale: no conversion needed
@@ -194,17 +215,32 @@ class SingleImageViewer:
             maxval = 255 if self.dtype == 'uint8' else 1.0
             img_hwc.clip(max=maxval)
 
-        sz = np.prod(img_hwc.shape)
-        assert sz <= np.prod(self.max_size_img), f'Image too large, max size {self.max_size_img}'
+        if is_tensor(img_hwc) and img_hwc.device.type.startswith('cuda'):
+            with self.shared_buffer_img.get_lock():
+                
+                # Using size 1 queue => clear existing if present
+                #while not self.torch_mp_queue.empty():
+                #    self.torch_mp_queue.get() # <= not allowed, might segfault
+                
+                if self.torch_mp_queue.full():
+                    return
 
-        # Synchronize
-        with self.shared_buffer_img.get_lock():
-            arr_np = np.frombuffer(self.shared_buffer_img.get_obj(), dtype=self.dtype)
-            arr_np[:sz] = img_hwc.reshape(-1)
-            self.latest_shape.h = img_hwc.shape[0]
-            self.latest_shape.w = img_hwc.shape[1]
-            self.latest_shape.c = img_hwc.shape[2]
-            self.has_new_img.value = 1
+                # refcounted, kept in memory on producer until consumer (ui thread) discards reference
+                self.torch_mp_queue.put(img_hwc.clone()) # clone should not be necessary, but buggy otherwise...
+                del img_hwc
+                self.buffered_img_type.value = ImgType.CUDA.value
+        else:
+            sz = np.prod(img_hwc.shape)
+            assert sz <= np.prod(self.max_size_img), f'Image too large, max size {self.max_size_img}'
+            
+            # Synchronize
+            with self.shared_buffer_img.get_lock():
+                arr_np = np.frombuffer(self.shared_buffer_img.get_obj(), dtype=self.dtype)
+                arr_np[:sz] = img_hwc.reshape(-1)
+                self.latest_shape.h = img_hwc.shape[0]
+                self.latest_shape.w = img_hwc.shape[1]
+                self.latest_shape.c = img_hwc.shape[2]
+                self.buffered_img_type.value = ImgType.NUMPY.value
 
     # Called from main thread
     def plot(self, y, *, x=None, ignore_pause=False):
@@ -321,11 +357,20 @@ class SingleImageViewer:
     def compute(self, v):
         self.started.value = True
         while not v.quit:
-            if self.has_new_img.value == 1:
+            if self.buffered_img_type.value == ImgType.CUDA.value:
+                with self.shared_buffer_img.get_lock():
+                    # If using size>1 queue: clear all, get latest
+                    t_cuda: torch.Tensor = None
+                    while not self.torch_mp_queue.empty():
+                        t_cuda = self.torch_mp_queue.get()
+                    if t_cuda is not None:
+                        v.upload_image_torch(self.key, t_cuda)
+                    self.buffered_img_type.value = ImgType.EMPTY.value
+            elif self.buffered_img_type.value == ImgType.NUMPY.value:
                 with self.shared_buffer_img.get_lock():
                     shape = (self.latest_shape.h, self.latest_shape.w, self.latest_shape.c)
                     img = np.frombuffer(self.shared_buffer_img.get_obj(), dtype=self.dtype, count=np.prod(shape)).copy()
-                    self.has_new_img.value = 0
+                    self.buffered_img_type.value = ImgType.EMPTY.value
 
                 img = img.reshape(shape)
                 if img.ndim == 2:

@@ -46,9 +46,10 @@ def cuda_synchronize():
 @lru_cache
 def get_cuda_plugin():
     try:
-        print('Setting up CUDA PT plugin')
+        print('Setting up CUDA PT plugin...', end='')
         from . import custom_ops
         pt_plugin = custom_ops.get_plugin('cuda_gl_interop', 'cuda_gl_interop.cpp', Path(__file__).parent / './custom_ops', unsafe_load_prebuilt=True)
+        print('done')
         return pt_plugin
     except Exception as e:
         print('Failed to build CUDA-GL plugin:', e)
