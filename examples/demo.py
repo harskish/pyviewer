@@ -46,13 +46,10 @@ class Test(ToolbarViewer):
         #rand = np.random.RandomState(seed=self.state.seed)
         #img += 0.15 * rand.randn(*img.shape).astype(np.float32)
         gen = torch.Generator(device).manual_seed(self.state.seed)
-        img += 0.15 * torch.randn(img.shape, generator=gen, device=device)
-
-        # TEST: to uint8
-        #img = np.uint8(255*np.clip(img, 0, 1))
-
-        # Async viewer
-        #siv.draw(img_hwc=img)
+        img = img + 0.15 * torch.randn(img.shape, generator=gen, device=device)
+        
+        # Somehow float32 causes flickering...
+        img = img.clip(0, 1).mul(255).byte()
 
         self.state.img = img
         return self.state.img

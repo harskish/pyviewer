@@ -1,6 +1,7 @@
 from pathlib import Path
 from threading import Thread
 import multiprocessing as mp
+#import torch.multiprocessing as mp
 import light_process as lp
 import numpy as np
 import random
@@ -75,7 +76,7 @@ class SingleImageViewer:
         # CUDA tensors can be shared without CPU round trip
         #self._torch_mp_queue = None # lazily initialized (torch import slow)
         self.mp_queue = mp.Queue() # for lazily transferring torch.mp.Queue handle
-        self.torch_mp_queue = torch.multiprocessing.Queue(maxsize=1)
+        self.torch_mp_queue = torch.multiprocessing.Queue(maxsize=3)
 
         # Plotting mode: max size 1M floats per axis
         self.max_size_plot = 1_000_000
@@ -184,7 +185,12 @@ class SingleImageViewer:
             self.curr_window_size.h = h
 
     # Called from main thread
-    def draw(self, img_hwc=None, img_chw=None, ignore_pause=False):
+    def draw(self, img_hwc=None, img_chw=None, ignore_pause=False, normalize=None):
+        """
+        Upload and draw np.array or torch.Tensor.
+        Must provide kwarg img_hwc (fast path) or img_chw (transposed internally).
+        Data is normalized based on self.normalize (kwarg normalize acts as override).
+        """
         # Paused or closed
         if (self.paused.value and not ignore_pause) or not self.ui_process.is_alive():
             return
@@ -196,19 +202,23 @@ class SingleImageViewer:
         assert img_hwc is None or img_chw is None, 'Cannot provide both img_hwc and img_chw'
 
         if is_tensor(img_hwc):
-            img_hwc = img_hwc.detach()#.cpu().numpy()
+            img_hwc = img_hwc.detach()
 
         if is_tensor(img_chw):
-            img_chw = img_chw.detach()#.cpu().numpy()
+            img_chw = img_chw.detach()
 
         # Convert chw to hwc, if provided
         # If grayscale: no conversion needed
         if img_chw is not None:
-            img_hwc = img_chw if img_chw.ndim == 2 else np.transpose(img_chw, (1, 2, 0))
+            if img_chw.ndim == 2:
+                img_hwc = img_chw
+            else:
+                img_hwc = torch.permute(img_chw, (1, 2, 0)) if is_tensor(img_chw) else np.transpose(img_chw, (1, 2, 0))
             img_chw = None
 
         # Convert data to valid range
-        if self.normalize:
+        normalize = self.normalize if normalize is None else normalize
+        if normalize:
             img_hwc = normalize_image_data(img_hwc, self.dtype)
         elif not self.hdr:
             # Unnormalized LDR: must clip to avoid broken colors
@@ -216,20 +226,15 @@ class SingleImageViewer:
             img_hwc.clip(max=maxval)
 
         if is_tensor(img_hwc) and img_hwc.device.type.startswith('cuda'):
-            with self.shared_buffer_img.get_lock():
-                
-                # Using size 1 queue => clear existing if present
-                #while not self.torch_mp_queue.empty():
-                #    self.torch_mp_queue.get() # <= not allowed, might segfault
-                
-                if self.torch_mp_queue.full():
-                    return
-
-                # refcounted, kept in memory on producer until consumer (ui thread) discards reference
-                self.torch_mp_queue.put(img_hwc.clone()) # clone should not be necessary, but buggy otherwise...
-                del img_hwc
+            try:
+                #img_hwc = img_hwc.share_memory_() # no-op for CUDA tensors
+                self.torch_mp_queue.put_nowait(img_hwc)
                 self.buffered_img_type.value = ImgType.CUDA.value
+            except:
+                pass
         else:
+            if is_tensor(img_hwc):    
+                img_hwc = img_hwc.cpu().numpy() # non-CUDA tensor: copied as numpy
             sz = np.prod(img_hwc.shape)
             assert sz <= np.prod(self.max_size_img), f'Image too large, max size {self.max_size_img}'
             
@@ -358,13 +363,9 @@ class SingleImageViewer:
         self.started.value = True
         while not v.quit:
             if self.buffered_img_type.value == ImgType.CUDA.value:
-                with self.shared_buffer_img.get_lock():
-                    # If using size>1 queue: clear all, get latest
-                    t_cuda: torch.Tensor = None
-                    while not self.torch_mp_queue.empty():
-                        t_cuda = self.torch_mp_queue.get()
-                    if t_cuda is not None:
-                        v.upload_image_torch(self.key, t_cuda)
+                try:
+                    v.upload_image_torch(self.key, self.torch_mp_queue.get_nowait())
+                except:
                     self.buffered_img_type.value = ImgType.EMPTY.value
             elif self.buffered_img_type.value == ImgType.NUMPY.value:
                 with self.shared_buffer_img.get_lock():
@@ -413,13 +414,13 @@ def show_window():
     elif inst.hidden:
         inst.show(sync=True)
 
-def draw(*, img_hwc=None, img_chw=None, ignore_pause=False):
+def draw(*, img_hwc=None, img_chw=None, ignore_pause=False, normalize=None):
     init('SIV') # no-op if init already performed
-    inst.draw(img_hwc, img_chw, ignore_pause)
+    inst.draw(img_hwc, img_chw, ignore_pause=ignore_pause, normalize=normalize)
 
-def grid(*, img_nchw=None, ignore_pause=False):
+def grid(*, img_nchw=None, ignore_pause=False, normalize=None):
     init('SIV') # no-op if init already performed
-    inst.draw(img_hwc=reshape_grid(img_nchw=img_nchw), ignore_pause=ignore_pause)
+    inst.draw(img_hwc=reshape_grid(img_nchw=img_nchw), ignore_pause=ignore_pause, normalize=normalize)
 
 def plot(y, *, x=None, ignore_pause=False):
     init('SIV') # no-op if init already performed
