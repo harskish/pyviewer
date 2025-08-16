@@ -259,12 +259,13 @@ class DockingViewer:
     def set_ui_scale(self, scale: float):
         if self._ui_scale == scale:
             return # setter might be called repeatedly e.g. via imgui.slider
+        old_ui_scale = self._ui_scale
         self._ui_scale = scale
         self.scale_style_sizes()
         
         # Rescale all fonts (even if they are merged)
         for font in self.fonts:
-            font.font_size = self.ui_scale * self.initial_font_size
+            font.font_size = font.font_size * self.ui_scale / old_ui_scale
         
         self.trigger_font_reload()
 
@@ -566,6 +567,9 @@ class DockingViewer:
             cW, cH = map(int, imgui.get_content_region_avail())
             canvas_tex = self.pan_handler.draw_to_canvas(self.tex_handle.tex, tW, tH, cW, cH, self.tex_handle.type)
             imgui.image(canvas_tex, (cW, cH))
+        
+        draw_list = imgui.get_window_draw_list()
+        self.draw_overlay(draw_list)
     
     def compute_loop(self):
         print('Compute thread: waiting for start event')
@@ -605,6 +609,10 @@ class DockingViewer:
         pass
 
     def draw_menu(self):
+        pass
+
+    def draw_overlay(self, draw_list: imgui.ImDrawList):
+        """Draw overlay on top of main output window"""
         pass
 
     # Perform computation, returning single np/torch image, or None
