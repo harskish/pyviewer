@@ -1,6 +1,8 @@
 import abc
 import sys
 from pathlib import Path
+import types
+import typing
 import numpy as np
 import time
 import threading
@@ -65,7 +67,22 @@ def layout(pos: str):
 
     return wrapper
 
+def file_drop_callback_wrapper(window: glfw._GLFWwindow, paths: list[Path], callback: typing.Callable[[list[Path]], bool], prev: typing.Callable):
+    return callback([Path(p) for p in paths]) or prev(window, paths)
+
+@lru_cache(maxsize=4)
+def alpha_ch_torch(H, W, maxval, dtype, device):
+    """
+    Get alpha channel for padding image data to rgba.
+    Cached to speed up repeated padding of GPU tensors.
+    """
+    return maxval * torch.ones((H, W, 1), dtype=dtype, device=device)
+
+# ------------------------------------------------------------------------------------------------------------
+# Docking window registry
+
 _dockable_windows: list[tuple[str, str]] = [] # identified by (fun name, title)
+
 def dockable(func=None, title=''):
     """
     Decorator indicating that generated UI elements
@@ -78,6 +95,9 @@ def dockable(func=None, title=''):
         setattr(func, '_title', window_title)
         return func
     return wrapper if func is None else wrapper(func)
+
+# ------------------------------------------------------------------------------------------------------------
+# Base class
 
 class DockingViewerBase(metaclass=abc.ABCMeta):
     def __init__(self, runner_params: hello_imgui.RunnerParams, addons: immapp.AddOnsParams):
@@ -325,14 +345,6 @@ class DockingViewerBase(metaclass=abc.ABCMeta):
         params = hello_imgui.get_runner_params().imgui_window_params
         params.show_menu_bar = not params.show_menu_bar
 
-    @lru_cache(maxsize=4)
-    def alpha_ch_torch(self, H, W, maxval, dtype, device):
-        """
-        Get alpha channel for padding image data to rgba.
-        Cached to speed up repeated padding of GPU tensors.
-        """
-        return maxval * torch.ones((H, W, 1), dtype=dtype, device=device)
-
     def reset_window_title(self):
         self._window_title = self._orig_window_title
     
@@ -398,6 +410,9 @@ class DockingViewerBase(metaclass=abc.ABCMeta):
     def save_settings(self):
         """Save settings using `hello_imgui.save_user_pref(k: str, v: str)`"""
         pass
+
+# ------------------------------------------------------------------------------------------------------------
+# Single texture docking viewer
 
 class DockingViewer(DockingViewerBase):
     def __init__(
@@ -606,7 +621,7 @@ class DockingViewer(DockingViewerBase):
             if is_np:
                 img_hwc = np.concatenate([img_hwc, maxval * np.ones((H, W, 1), dtype=img_hwc.dtype)], axis=-1)
             else:
-                img_hwc = torch.cat([img_hwc, self.alpha_ch_torch(H, W, maxval, img_hwc.dtype, img_hwc.device)], dim=2)
+                img_hwc = torch.cat([img_hwc, alpha_ch_torch(H, W, maxval, img_hwc.dtype, img_hwc.device)], dim=2)
 
         img_hwc = normalize_image_data(img_hwc, img_hwc.dtype) if self.normalize else img_hwc
 
@@ -654,3 +669,197 @@ class DockingViewer(DockingViewerBase):
             time.sleep(0.01)
 
         print('Compute thread: received stop event, exiting')
+
+# ------------------------------------------------------------------------------------------------------------
+# Multi texture docking viewer
+
+class TextureWindowUnit:
+    """A class to manage 'single' window with texture
+    """
+
+    def __init__(self, name: str):
+        self.name = name
+
+        # Setup PannableArea for this window
+        self._pannable_area = PannableArea(force_mouse_capture=True)
+
+        # Setup OpenGL texture, lazily created
+        self._texture: _texture | None = None
+
+        # Buffer on RAM
+        self.img_shape: list = [3, 4, 4]  # CHW (to match ToolbarViewer)
+        self.image: np.ndarray | None = None
+
+        # Timings
+        self.img_dt: float = 0.0
+        self.last_upload_dt: float = 0
+        self.tex_upload_ms: float = 0.0  # time taken to upload texture in ms
+
+        # Dynamically create a new independent copy of the window function
+        orig_func = self.__class__.__dict__['window']
+        copied_func = types.FunctionType(
+            orig_func.__code__,
+            orig_func.__globals__,
+            name=orig_func.__name__,
+            argdefs=orig_func.__defaults__,
+            closure=orig_func.__closure__
+        )
+        dockable_window = dockable(copied_func, title=name)
+
+        # Bind the copied function to this instance
+        setattr(self, 'window', dockable_window.__get__(self, self.__class__))
+
+    def generate_texture(self) -> None:
+        """Lazily create OpenGL texture.
+        """
+
+        if self._texture is None:
+            self._texture = _texture(gl.GL_NEAREST, gl.GL_NEAREST)
+
+    def set_callbacks(self, glfw_window: glfw._GLFWwindow) -> None:
+        """Set callbacks for PannableArea. This must be called after glfw window is created.
+
+        Parameters
+        ----------
+        glfw_window: glfw._GLFWwindow
+            GLFW window to set callbacks.
+        """
+
+        self._pannable_area.set_callbacks(glfw_window)
+
+    def set_theme(self) -> None:
+        """Set theme for PannableArea.
+        """
+
+        self._pannable_area.clear_color = imgui.get_style().color_(imgui.Col_.window_bg)  # match theme_deep_dark
+
+    def dispose_texture(self) -> None:
+        """Dispose OpenGL texture. This should be called when the window is closed or the texture is no longer needed.
+        """
+
+        if self._texture is not None:
+            del self._texture
+            self._texture = None
+
+    def upload_texture(self) -> None:
+        """Upload image data to OpenGL texture.
+        """
+
+        if self._texture is None:
+            print('No OpenGL texture to be uploaded to')
+            return
+
+        if self.img_dt > self.last_upload_dt:
+            t0 = time.monotonic()
+
+            if isinstance(self.image, np.ndarray):
+                self._texture.upload_np(self.image)
+            elif self.image.device.type == 'cuda':
+                self._texture.upload_torch(self.image)
+            elif self.image.device.type == 'mps':
+                # https://github.com/prabu-ram/Custom_PyTorch-Operations/blob/main/compiler.py
+                self._texture.upload_mps(self.image)
+            else:
+                self._texture.upload_np(self.image.cpu().numpy())
+
+            self.last_upload_dt = time.monotonic()
+
+            self.tex_upload_ms = (self.last_upload_dt - t0) * 1000  # upload time stats
+
+    def window(self):
+        """Dockable window for displaying a texture.
+        """
+
+        # First upload texture if it has been set
+        self.upload_texture()
+
+        # Begin the ImGui window
+        imgui.begin(self.name, True, imgui.WindowFlags_.no_collapse)
+
+        if self.image is not None:
+            tH, tW, _ = self.image.shape
+            cW, cH = map(int, imgui.get_content_region_avail())
+
+            # Draw the texture to the canvas
+            canvas_tex = self._pannable_area.draw_to_canvas(self._texture.tex, tW, tH, cW, cH)
+            imgui.image(canvas_tex, (cW, cH))
+
+        imgui.end()
+
+
+class TextureWindows(dict[str, TextureWindowUnit]):
+    """A container class to manage multiple windows
+    """
+
+    def __init__(self, names: list[str], normalize: bool):
+        windows = {str(name): TextureWindowUnit(name) for name in names}
+        self.normalize = normalize
+        super().__init__(windows)
+
+    def generate_texture(self) -> None:
+        """Generate OpenGL textures for all texture windows.
+        """
+
+        for window in self.values():
+            window.generate_texture()
+
+    def dispose_texture(self) -> None:
+        """Dispose OpenGL textures for all texture windows.
+        """
+
+        for window in self.values():
+            window.dispose_texture()
+
+    def set_callbacks(self, glfw_window: glfw._GLFWwindow) -> None:
+        """Set GLFW callbacks for all texture windows.
+
+        Parameters
+        ----------
+        glfw_window: glfw._GLFWwindow
+            GLFW window to set callbacks for .
+        """
+
+        for window in self.values():
+            window.set_callbacks(glfw_window)
+
+    def set_theme(self) -> None:
+        """Set theme for all texture windows' PannableArea.
+        """
+
+        for window in self.values():
+            window.set_theme()
+
+    def update_image(self, **kwargs):
+        """Update textures based on window names
+        """
+
+        kwargs = dict(kwargs)
+
+        for key, img_hwc in kwargs.items():
+            if img_hwc is None:
+                continue
+
+            assert key in self, f'An image data was assigned to a non-existing texture window: "{key}"'
+
+            is_np = isinstance(img_hwc, np.ndarray)
+            assert is_np or is_tensor(img_hwc), 'Expected np.ndarray or torch.Tensor'
+
+            is_fp = (img_hwc.dtype.kind == 'f') if is_np else img_hwc.dtype.is_floating_point
+            is_signed = (img_hwc.dtype.kind == 'i') if is_np else img_hwc.dtype.is_signed
+            dtype_bits = img_hwc.dtype.itemsize * 8
+            H, W, C = img_hwc.shape
+
+            # RGBA texture uploads are much faster on some drivers
+            if img_hwc.shape[-1] == 3:
+                maxval = 1 if is_fp else 2**(dtype_bits - int(is_signed))
+                if is_np:
+                    img_hwc = np.concatenate([img_hwc, maxval * np.ones((H, W, 1), dtype=img_hwc.dtype)], axis=-1)
+                else:
+                    img_hwc = torch.cat([img_hwc, alpha_ch_torch(H, W, maxval, img_hwc.dtype, img_hwc.device)], dim=2)
+
+            img_hwc = normalize_image_data(img_hwc, img_hwc.dtype) if self.normalize else img_hwc
+
+            # Eventually uploaded by UI thread
+            self[key].image = img_hwc
+            self[key].img_shape = [img_hwc.shape[2], *img_hwc.shape[:2]]  # shape in chw format
+            self[key].img_dt = time.monotonic()
