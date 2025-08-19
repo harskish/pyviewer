@@ -1,4 +1,5 @@
 import abc
+import functools
 import sys
 from pathlib import Path
 import types
@@ -370,11 +371,7 @@ class DockingViewerBase(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def update_image(self, *, img_hwc=None):
-        pass
-    
-    @abc.abstractmethod
-    def compute_loop(self):
+    def compute_loop(self) -> None:
         pass
     
     #########################
@@ -391,10 +388,6 @@ class DockingViewerBase(metaclass=abc.ABCMeta):
         """Draw overlay on top of main output window"""
         pass
 
-    # Perform computation, returning single np/torch image, or None
-    def compute(self):
-        pass
-
     # Program state init
     def setup_state(self):
         pass
@@ -409,6 +402,11 @@ class DockingViewerBase(metaclass=abc.ABCMeta):
 
     def save_settings(self):
         """Save settings using `hello_imgui.save_user_pref(k: str, v: str)`"""
+        pass
+    
+    def compute(self):
+        """Perform computation, returning single np/torch image, or None
+        """
         pass
 
 # ------------------------------------------------------------------------------------------------------------
@@ -657,7 +655,7 @@ class DockingViewer(DockingViewerBase):
         draw_list = imgui.get_window_draw_list()
         self.draw_overlay(draw_list)
 
-    def compute_loop(self):
+    def compute_loop(self) -> None:
         print('Compute thread: waiting for start event')
         self.start_event.wait(timeout=None)
         print('Compute thread: start event received')
@@ -669,6 +667,7 @@ class DockingViewer(DockingViewerBase):
             time.sleep(0.01)
 
         print('Compute thread: received stop event, exiting')
+
 
 # ------------------------------------------------------------------------------------------------------------
 # Multi texture docking viewer
@@ -863,3 +862,284 @@ class TextureWindows(dict[str, TextureWindowUnit]):
             self[key].image = img_hwc
             self[key].img_shape = [img_hwc.shape[2], *img_hwc.shape[:2]]  # shape in chw format
             self[key].img_dt = time.monotonic()
+
+
+class MultiTexturesDockingViewer(DockingViewerBase):
+    def __init__(
+        self,
+        name: str,
+        texture_names: list[str],
+        normalize=False,
+        enable_vsync=False,
+        full_screen_mode=hello_imgui.FullScreenMode.no_full_screen,
+        with_implot=True,
+        with_implot3d=False,
+        with_node_editor=False,
+        with_node_editor_config=None,
+        with_tex_inspect=False,
+        with_font_awesome=False,
+    ):
+        """Docking viewer with multiple texture windows.
+
+        Usage
+        -----
+        ```python
+        class DemoViewer(MultiTexturesDockingViewer):
+            def __init__(self, name):
+                super().__init__(name, texture_names=['Window 0', 'Window 1'])
+
+            def compute(self):
+                img0 = ...
+                img1 = ...
+                
+                return {
+                    'Window 0': img0,
+                    'Window 1': img1
+                }
+        ```
+        """
+
+        # Immapp:
+        #  immapp.run() python stub:   https://github.com/pthom/imgui_bundle/blob/v1.6.2/bindings/imgui_bundle/immapp/immapp_cpp.pyi#L162
+        #  immapp.run() nanobind impl: https://github.com/pthom/imgui_bundle/blob/v1.6.2/external/immapp/bindings/pybind_immapp_cpp.cpp#L158
+        #  immapp.run() CPP impl:      https://github.com/pthom/imgui_bundle/blob/v1.6.2/external/immapp/immapp/runner.cpp#L233
+
+        # Hello-Imgui:
+        #  hello_imgui.run() python stub:     https://github.com/pthom/imgui_bundle/blob/v1.6.2/bindings/imgui_bundle/hello_imgui.pyi#L3416
+        #  hello_imgui.run() nanobind impl:   https://github.com/pthom/imgui_bundle/blob/v1.6.2/external/hello_imgui/bindings/pybind_hello_imgui.cpp#L1761
+        #  hello_imgui.run() CPP impl:        https://github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/impl/hello_imgui.cpp#L227
+        #  AbstractRunner::Run():             https://github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/internal/backend_impls/abstract_runner.cpp#L124
+        #  PreNewFrame call:                  https://github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/internal/backend_impls/abstract_runner.cpp#L1412
+        #  SCOPED_RELEASE_GIL_ON_MAIN_THREAD: https://github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/internal/backend_impls/abstract_runner.cpp#L1443
+        #  fnReloadFontsIfDpiScaleChanged:    https://github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/internal/backend_impls/abstract_runner.cpp#L947
+
+        # Start compute thread asap
+        self.start_event: threading.Event = threading.Event()
+        self.stop_event: threading.Event = threading.Event()
+        compute_thread = threading.Thread(target=self.compute_loop, args=[], daemon=True)
+        compute_thread.start()
+
+        # Installed by pip, includes two fonts
+        hello_imgui.set_assets_folder(demos_assets_folder())
+
+        runner_params = hello_imgui.RunnerParams()
+        runner_params.app_window_params.window_title = name
+        runner_params.app_window_params.window_geometry.size = (1000, 900)
+        runner_params.app_window_params.window_geometry.full_screen_mode = full_screen_mode
+        runner_params.app_window_params.restore_previous_geometry = True
+        runner_params.dpi_aware_params.only_use_font_dpi_responsive = True  # automatically handle font scaling
+        runner_params.fps_idling.fps_idle = 5.0
+
+        # Normally setting no_mouse_input windows flags on containing window is enough,
+        # but docking (presumably) seems to be capturing mouse input regardless.
+        self._ui_scale = 1.0
+        self.ui_locked = True # resize in progress?
+        self.first_frame = True # e.g. imgui.set_scroll_size wonky on first frame
+
+        # Main image (output of self.compute())
+        self.state = EasyDict()
+
+        self.initial_font_size = 15
+        self.fonts: list[hello_imgui.FontDpiResponsive] = []
+        self.window: glfw._GLFWwindow = None
+        self._window_title = name
+        self._orig_window_title = name
+        self.load_font_awesome = with_font_awesome
+        self.enable_vsync = enable_vsync
+
+        # For limiting OpenGL operations to UI thread
+        self.ui_tid = threading.get_native_id() # main thread
+
+        # Check if HDR mode has been turned on
+        from pyviewer import _macos_hdr_patch
+        self.hdr = (_macos_hdr_patch.CUR_MODE == _macos_hdr_patch.Mode.PATCHED)
+
+        # Normalize images before showing?
+        normalize = normalize if not self.hdr else False
+
+        # Create texture windows
+        self.texture_windows = TextureWindows(texture_names, normalize)  # for each dockable window
+
+        def load_settings_cbk():
+            try:
+                self.ui_scale = float(hello_imgui.load_user_pref('ui_scale'))
+            except:
+                pass
+            self.load_settings()
+
+        def post_init_fun():
+            glfw.make_context_current(self.window)
+
+            if self.enable_vsync:
+                glfw.swap_interval(1)  # Enable vsync
+
+            # Create OpenGL textures
+            self.texture_windows.generate_texture()
+
+            # Setup
+            load_settings_cbk()
+            self.setup_state()
+            self.start_event.set()
+
+        def save_settings_cbk():
+            hello_imgui.save_user_pref("ui_scale", f'{self.ui_scale}')
+            self.save_settings()
+
+        def before_exit():
+            save_settings_cbk()
+            self.stop_event.set()
+
+            # Dispose all the OpenGL textures
+            self.texture_windows.dispose_texture()
+
+        def add_backend_cbk(*args, **kwargs):
+            # Set own glfw callbacks, will be chained by imgui
+            self.window = glfw_utils.glfw_window_hello_imgui()  # why not glfw.get_current_context()?
+            self.texture_windows.set_callbacks(self.window)  # Set callbacks for PannableArea
+
+            # Set callback for drop event
+            def noop(*args, **kwargs):
+                return False
+            prev = glfw.set_drop_callback(self.window, None)
+            glfw.set_drop_callback(self.window, functools.partial(file_drop_callback_wrapper, callback=self.drag_and_drop_callback, prev=(prev or noop)))
+
+        def setup_theme_cbk():
+            self.setup_theme()  # user-overridable
+            self.scale_style_sizes()
+
+            # Set theme for PannableArea
+            self.texture_windows.set_theme()
+
+        def after_swap():
+            self.first_frame = False
+            glfw.set_window_title(self.window, self._window_title)  # from main thread
+
+        runner_params.callbacks.post_init = post_init_fun
+        runner_params.callbacks.before_exit = before_exit
+        runner_params.callbacks.post_init_add_platform_backend_callbacks = add_backend_cbk
+        runner_params.callbacks.load_additional_fonts = self.load_fonts
+        runner_params.callbacks.setup_imgui_style = setup_theme_cbk
+        runner_params.callbacks.pre_new_frame = self.pre_new_frame
+        runner_params.callbacks.after_swap = after_swap
+
+        self.show_app_menu = False
+        self.show_view_menu = True
+        runner_params.imgui_window_params.show_menu_bar = True
+        runner_params.imgui_window_params.show_menu_app = False  # called manually
+        runner_params.imgui_window_params.show_menu_view = False  # called manually
+        runner_params.callbacks.show_menus = lambda: self._draw_menu_wrapper(runner_params)
+
+        # Status bar: fps etc.
+        runner_params.imgui_window_params.remember_status_bar_settings = False  # don't cache
+        if type(self).draw_status_bar != MultiTexturesDockingViewer.draw_status_bar:  # overridden
+            runner_params.imgui_window_params.show_status_bar = True  # off by default
+            runner_params.callbacks.show_status = self.draw_status_bar
+
+        # Create "MainDockSpace"
+        runner_params.imgui_window_params.default_imgui_window_type = (
+            hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space
+        )
+
+        # Allow splitting into separate windows?
+        runner_params.imgui_window_params.enable_viewports = True
+
+        # Docking layout
+        runner_params.docking_params = self.setup_layout()
+        runner_params.docking_params.main_dock_space_node_flags |= imgui.DockNodeFlags_.auto_hide_tab_bar
+
+        # .ini for window and app state saving'
+        runner_params.ini_folder_type = hello_imgui.IniFolderType.app_user_config_folder
+        runner_params.ini_filename = name.lower().strip().replace(' ', '_') + '.ini'
+        ini_path = Path(hello_imgui.ini_folder_location(runner_params.ini_folder_type)) / runner_params.ini_filename
+        print(f'INI path: {ini_path}')
+
+        glfw.init()
+
+        if self.hdr:
+            glfw.window_hint(glfw.RED_BITS, 16)
+            glfw.window_hint(glfw.GREEN_BITS, 16)
+            glfw.window_hint(glfw.BLUE_BITS, 16)
+
+        addons = immapp.AddOnsParams(
+            with_implot=with_implot,
+            with_implot3d=with_implot3d,
+            with_node_editor=with_node_editor,
+            with_node_editor_config=with_node_editor_config,
+            with_tex_inspect=with_tex_inspect,
+        )
+
+        super().__init__(runner_params, addons)
+
+    def setup_layout(self) -> hello_imgui.DockingParams:
+        """
+        Create initial dummy docking layout.
+        Ignores @layout specifiers, creates horizontal split.
+        Only used initially, subsequent runs will reload previous layout.
+        """
+
+        # Find all functions with @layout decorator
+        # Use list of candidate names '_dockable_windows' to avoid calling getattr on properties before user state init
+        # In case of multiple instances and name collisions: must check attribute _layout_pos as well
+        fun_names, titles = zip(*_dockable_windows)
+        candidates = [getattr(self, name) for name in dir(self) if name in fun_names]
+
+        # For texture windows
+        for _, texture_window in self.texture_windows.items():
+            for name in dir(texture_window):
+                if name in fun_names:
+                    candidates.append(getattr(texture_window, name))
+
+        layout_funcs = [f for f in candidates if hasattr(f, '_title')]
+        assert len(titles) == len(set(titles)), 'Titles must be unique'
+
+        splits, windows = self.setup_docking_layout(layout_funcs)
+
+        return hello_imgui.DockingParams(splits, windows)
+    
+    def compute_loop(self):
+        print('Compute thread: waiting for start event')
+        self.start_event.wait(timeout=None)
+        print('Compute thread: start event received')
+
+        while not self.stop_event.is_set():
+            ret = self.compute()
+
+            if ret is not None:
+                self.texture_windows.update_image(**ret)
+
+            time.sleep(0.01)
+
+        print('Compute thread: received stop event, exiting')
+
+    # --------------------------------------------------------------------------------------------
+    # User provided callbacks
+
+    # Can be overridden
+    def drag_and_drop_callback(self, paths: list[Path]) -> bool:
+        """Judge whether to accept the drad and drop event
+        """
+        return False
+
+    # Can be overridden
+    def setup_docking_layout(self, layout_funcs: list[typing.Callable[[None], None]]) -> tuple[list[hello_imgui.DockingSplit], list[hello_imgui.DockableWindow]]:
+        """Setup an initial docking layout. This function can be overridden in your child class. As a default, all dockable windows are stacked horizontally with the same width.
+
+        Parameters
+        ----------
+        layout_funcs : list[typing.Callable[[None], None]]
+            Window functions defined with `@dockable` decorator
+
+        Returns
+        -------
+        tuple[list[hello_imgui.DockingSplit], list[hello_imgui.DockableWindow]]
+            A list of DockingSplit and a list of DockableWindow
+        """
+
+        dock_space_names = ['MainDockSpace'] + [f'Dock{i}' for i in range(len(layout_funcs) - 1)] # Pseudo names for dock spaces. 'MainDockSpace' must be included.
+        n_windows = len(layout_funcs) # has equal length with dock_space_names
+
+        # NOTE: Should be splitted like: (N-1) / N, (N-2) / (N-1), (N-3) / (N-2), ..., 3 / 4, 2 / 3, 1 / 2
+        splits = [hello_imgui.DockingSplit(prev, cur, imgui.Dir.right, ratio_=(n_windows - i_dock - 1) / (n_windows - i_dock)) for i_dock, (prev, cur) in enumerate(zip(dock_space_names[:-1], dock_space_names[1:]))]
+        windows = [hello_imgui.DockableWindow(f._title, d, f, can_be_closed_=True) for f, d in zip(layout_funcs, dock_space_names)]
+
+        return splits, windows
