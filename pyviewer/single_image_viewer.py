@@ -259,6 +259,8 @@ class SingleImageViewer:
 
         if v.keyhit(glfw.KEY_PAUSE):
             self.paused.value = not self.paused.value
+        if v.keyhit(glfw.KEY_P):
+            self.paused.value = not self.paused.value
         if v.keyhit(glfw.KEY_M):
             self.viz_mode.value = (self.viz_mode.value + 1) % len(VizMode) # loop through modes
 
@@ -307,7 +309,7 @@ class SingleImageViewer:
                 implot.end_plot()
 
         if self.paused.value:
-            imgui.push_font(v._imgui_fonts[30])
+            imgui.push_font(v._imgui_fonts[31])
             dl = imgui.get_window_draw_list()
             dl.add_rect_filled((5, 8), (115, 43), imgui.color_convert_float4_to_u32([0,0,0,1]))
             dl.add_text((20, 10), imgui.color_convert_float4_to_u32([1,1,1,1]), 'PAUSED')

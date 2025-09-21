@@ -37,7 +37,6 @@ if not importlib.util.find_spec("torch"):
 # - No Nanovg (https://github.com/pthom/imgui_bundle/issues/259#issuecomment-2391258789)
 # - No fps throttling ("sleep mode" on inactivity)
 # - Not well supported/tested in general
-# - Probably won't get non-glfw backends
 # - CPP backend sometimes releases GIL, should be slightly more performant
 
 # Based on:
