@@ -5,7 +5,7 @@ import time
 import threading
 import time
 from typing import Union
-from functools import lru_cache
+from functools import lru_cache, partial
 
 # Some callbacks broken if imported before imgui_bundle...??
 assert 'glfw' not in sys.modules or 'imgui_bundle' in sys.modules, 'glfw should be imported after pyviewer'
@@ -38,6 +38,9 @@ if not importlib.util.find_spec("torch"):
 # - No fps throttling ("sleep mode" on inactivity)
 # - Not well supported/tested in general
 # - CPP backend sometimes releases GIL, should be slightly more performant
+
+def file_drop_callback_wrapper(window, paths, callback: callable, prev: callable):
+    return callback([Path(p) for p in paths]) or prev(window, paths)
 
 # Based on:
 # https://traineq.org/ImGuiBundle/emscripten/bin/demo_docking.html
@@ -179,6 +182,11 @@ class DockingViewer:
         def add_backend_cbk(*args, **kwargs):
             # Set own glfw callbacks, will be chained by imgui
             self.window = glfw_utils.glfw_window_hello_imgui() # why not glfw.get_current_context()?
+            def noop(*args, **kwargs):
+                return False
+            prev = glfw.set_drop_callback(self.window, None)
+            glfw.set_drop_callback(self.window,
+                partial(file_drop_callback_wrapper, callback=self.drag_and_drop_callback, prev=(prev or noop)))
             self.pan_handler.set_callbacks(self.window)
 
         def setup_theme_cbk():
@@ -632,4 +640,7 @@ class DockingViewer:
 
     def save_settings(self):
         """Save settings using `hello_imgui.save_user_pref(k: str, v: str)`"""
+        pass
+
+    def drag_and_drop_callback(self, paths: list[Path]) -> bool:
         pass
