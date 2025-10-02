@@ -121,6 +121,7 @@ class FloatParam(_RangeParam):
     def __init__(self, label, default_val: float, minval, maxval, log=False, tooltip: str = None) -> None:
         super().__init__(float, label, cfloat(default_val), minval, maxval, tooltip)
         self.log = log
+        assert not isinstance(log, str), 'Log type mismatch (passing tooltip as log parameter?)'
     
     def draw_widget(self):
         flags = imgui.SliderFlags_.logarithmic if self.log else imgui.SliderFlags_.none

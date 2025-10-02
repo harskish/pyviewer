@@ -163,13 +163,14 @@ class SingleImageViewer:
             self.curr_window_size.h = h
 
     # Called from main thread
-    def draw(self, img_hwc=None, img_chw=None, ignore_pause=False):
+    def draw(self, img_hwc=None, img_chw=None, ignore_pause=False, change_mode=True):
         # Paused or closed
         if (self.paused.value and not ignore_pause) or not self.ui_process.is_alive():
             return
 
         # Activate image mode
-        self.viz_mode.value = VizMode.IMAGE.value
+        if change_mode:
+            self.viz_mode.value = VizMode.IMAGE.value
 
         assert img_hwc is not None or img_chw is not None, 'Must provide img_hwc or img_chw'
         assert img_hwc is None or img_chw is None, 'Cannot provide both img_hwc and img_chw'
@@ -207,13 +208,13 @@ class SingleImageViewer:
             self.has_new_img.value = 1
 
     # Called from main thread
-    def plot(self, y, *, x=None, ignore_pause=False):
+    def plot(self, y, *, x=None, ignore_pause=False, change_mode=True):
         # Paused or closed
         if (self.paused.value and not ignore_pause) or not self.ui_process.is_alive():
             return
 
         # Activate plotting mode
-        if self.viz_mode.value == VizMode.IMAGE.value:
+        if change_mode and self.viz_mode.value == VizMode.IMAGE.value:
             self.viz_mode.value = VizMode.PLOT_LINE.value
         
         assert x is not None or y is not None, 'Must provide data for x or y axis'
@@ -370,17 +371,17 @@ def show_window():
     elif inst.hidden:
         inst.show(sync=True)
 
-def draw(*, img_hwc=None, img_chw=None, ignore_pause=False):
+def draw(*, img_hwc=None, img_chw=None, ignore_pause=False, change_mode=True):
     init('SIV') # no-op if init already performed
-    inst.draw(img_hwc, img_chw, ignore_pause)
+    inst.draw(img_hwc, img_chw, ignore_pause, change_mode=change_mode)
 
-def grid(*, img_nchw=None, ignore_pause=False):
+def grid(*, img_nchw=None, ignore_pause=False, change_mode=True):
     init('SIV') # no-op if init already performed
-    inst.draw(img_hwc=reshape_grid(img_nchw=img_nchw), ignore_pause=ignore_pause)
+    inst.draw(img_hwc=reshape_grid(img_nchw=img_nchw), ignore_pause=ignore_pause, change_mode=change_mode)
 
-def plot(y, *, x=None, ignore_pause=False):
+def plot(y, *, x=None, ignore_pause=False, change_mode=True):
     init('SIV') # no-op if init already performed
-    inst.plot(x=x, y=y, ignore_pause=ignore_pause)
+    inst.plot(x=x, y=y, ignore_pause=ignore_pause, change_mode=change_mode)
 
 def set_marker_size(size):
     "Set implot marker size"
