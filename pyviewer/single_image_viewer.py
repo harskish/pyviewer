@@ -40,7 +40,7 @@ class VizMode(Enum):
     PLOT_DOT = 3
 
 class SingleImageViewer:
-    def __init__(self, title, key=None, hdr=False, normalize=True, vsync=True, hidden=False, pannable=True):
+    def __init__(self, title, key=None, hdr=False, normalize=True, vsync=True, hidden=False, pannable=True, paused=False):
         self.title = title
         self.key = key or ''.join(random.choices(string.ascii_letters, k=100))
         self.ui_process = None
@@ -88,7 +88,7 @@ class SingleImageViewer:
         self.pan_enabled = mp.Value(ctypes.c_bool, pannable, lock=False)
 
         # Pausing (via pause key on keyboard) speeds up computation
-        self.paused = mp.Value(ctypes.c_bool, False, lock=False)
+        self.paused = mp.Value(ctypes.c_bool, paused, lock=False)
         
         # For waiting until process has started
         self.started = mp.Value(ctypes.c_bool, False, lock=False)
@@ -361,10 +361,10 @@ def init(*args, sync=True, **kwargs):
             inst.wait_for_startup() # if calling from debugger: need to give process time to start
 
 # No-op if already open, therwise (re)start
-def show_window():
+def show_window(paused=False):
     # Elif to avoid immediate restart if first init
     if inst is None:
-        init('SIV')
+        init('SIV', paused=paused)
     elif not inst.started.value:
         inst.restart()
         inst.paused.value = False
