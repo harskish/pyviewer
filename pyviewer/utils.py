@@ -17,6 +17,7 @@ from textwrap import dedent
 from functools import wraps
 from platform import system
 
+
 import OpenGL.GL as gl
 import ctypes
 
