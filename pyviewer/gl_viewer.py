@@ -28,6 +28,7 @@ from .imgui_themes import *
 import glfw
 glfw.ERROR_REPORTING = 'raise' # make sure errors don't get swallowed
 import OpenGL.GL as gl
+import OpenGL.platform as gl_platform
 
 @lru_cache
 def get_cuda_synchronize():
@@ -379,11 +380,15 @@ class viewer:
             # glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE) # // 3.2+ only
             # glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, GL.GL_TRUE)
 
-        if is_wsl:
+        # EGL on NixOS and WSL seems to be buggy
+        is_egl = 'EGLPlatform' in str(type(getattr(gl_platform, 'PLATFORM', None))) # as opposed to GLX (x11) or WGL (Windows)
+        if is_egl:
             # https://github.com/pyimgui/pyimgui/issues/318
             # https://github.com/pygame/pygame/issues/3110
-            from OpenGL import contextdata, platform as gl_platform
-            print('Applying WSL PyOpenGL monkey patch (only tested on 3.1.7)')
+            from OpenGL import contextdata, __version__ as pyogl_ver
+            print('Applying EGL PyOpenGL monkey patch')
+            if pyogl_ver != '3.1.7':
+                print(f'Warning: only tested on 3.1.7, current version is {pyogl_ver}')
             def fixed( context = None ):
                 if context is None:
                     context = gl_platform.GetCurrentContext()
