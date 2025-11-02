@@ -407,7 +407,7 @@ class viewer:
         if not self._window:
             raise RuntimeError('Could not create window')
 
-        glfw.set_window_pos(self._window, *self.window_pos)
+        #glfw.set_window_pos(self._window, *self.window_pos)
         glfw.make_context_current(self._window)
         # print('GL context:', gl.glGetString(gl.GL_VERSION).decode('utf8'))
 
@@ -431,7 +431,7 @@ class viewer:
         # MPLUSRounded1c-Medium.ttf: no content for sizes >35
         # Apple M1, WSL have have low texture count limits
         # Too many fonts => GLFWRenderer.refresh_font_texture() will be slow
-        font_sizes = range(8, 36, 1) if 'win32' in platform else range(9, 36, 2) # make sure to include 15 (default font size)
+        font_sizes = range(9, 36, 2) if 'darwin' in platform else range(8, 36, 1) # make sure to include 15 (default font size)
         font_sizes = [int(s) for s in font_sizes]
         handle = imgui.get_io().fonts
         glyph_range = None #handle.get_glyph_ranges_chinese_full() # NB: full Chinese range super slow
@@ -684,7 +684,7 @@ class viewer:
         # Update size and pos
         if not self.fullscreen:
             self._width, self._height = glfw.get_framebuffer_size(self._window)
-            self.window_pos = glfw.get_window_pos(self._window)
+            #self.window_pos = glfw.get_window_pos(self._window)
 
         with open(self._inifile, 'w') as file:
             file.write('{} {}\n'.format(self._width, self._height))

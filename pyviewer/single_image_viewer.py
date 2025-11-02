@@ -12,6 +12,7 @@ import glfw
 import ctypes
 import warnings
 from enum import Enum
+from functools import partial
 
 # Torch import is slow
 # => don't import unless already imported by calling code
@@ -93,6 +94,9 @@ class SingleImageViewer:
         # For waiting until process has started
         self.started = mp.Value(ctypes.c_bool, False, lock=False)
 
+        # For smooth panning despite pause being on
+        self.last_ui_active = time.monotonic()
+
         self._start()
 
     # Called from main thread, waits until viewer is visible
@@ -151,9 +155,17 @@ class SingleImageViewer:
             self.window_size_callback(window, *glfw.get_window_size(window)) # call once to set defaults
             glfw.set_window_close_callback(window, self.window_close_callback)
             glfw.set_window_size_callback(window, self.window_size_callback)
+            glfw.set_cursor_pos_callback(window,
+                partial(self.cursor_pos_callback, prev_cbk=glfw.set_cursor_pos_callback(window, None)))
             v.pan_handler.set_callbacks(window)
         v.start(self.ui, [compute_thread], set_glfw_callbacks)
-
+    
+    def cursor_pos_callback(self, window, xpos: float, ypos: float, prev_cbk):
+        """Cursor moves **over the window**"""
+        self.last_ui_active = time.monotonic()
+        if prev_cbk:
+            prev_cbk(window, xpos, ypos) # pass event on to imgui
+    
     def window_close_callback(self, window):
         self.started.value = False
 
@@ -258,12 +270,12 @@ class SingleImageViewer:
             else:
                 glfw.show_window(v._window)
 
-        if v.keyhit(glfw.KEY_PAUSE):
+        if v.keyhit(glfw.KEY_PAUSE) or v.keyhit(glfw.KEY_P):
             self.paused.value = not self.paused.value
-        if v.keyhit(glfw.KEY_P):
-            self.paused.value = not self.paused.value
+            self.last_ui_active = time.monotonic()
         if v.keyhit(glfw.KEY_M):
             self.viz_mode.value = (self.viz_mode.value + 1) % len(VizMode) # loop through modes
+            self.last_ui_active = time.monotonic()
 
         imgui.set_next_window_size(glfw.get_window_size(v._window))
         imgui.set_next_window_pos((0, 0))
@@ -310,12 +322,18 @@ class SingleImageViewer:
                 implot.end_plot()
 
         if self.paused.value:
+            inactive = (time.monotonic() - self.last_ui_active) > 2
             imgui.push_font(v._imgui_fonts[31])
             dl = imgui.get_window_draw_list()
             dl.add_rect_filled((5, 8), (115, 43), imgui.color_convert_float4_to_u32([0,0,0,1]))
-            dl.add_text((20, 10), imgui.color_convert_float4_to_u32([1,1,1,1]), 'PAUSED')
+            text_color = (0.8,0.8,0.8,1) if inactive else (1,1,1,1)
+            dl.add_text((20, 10), imgui.color_convert_float4_to_u32(text_color), 'PAUSED')
             imgui.pop_font()
-            time.sleep(1/20) # <= real speedup of pausing comes from here
+            
+            # Relatively long delay until "inactive"
+            # => unlikely that user keeps cursor perfectly still this long, then suddenly pans image
+            if inactive:
+                time.sleep(1/5) # <- real speedup of pausing comes from here
 
         imgui.end()
 
