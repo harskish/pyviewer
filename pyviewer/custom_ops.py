@@ -21,6 +21,8 @@ def get_plugin(
         source_files = tuple(source_files)
     if isinstance(extra_cflags, list):
         extra_cflags = tuple(extra_cflags)
+    if isinstance(ldflags, list):
+        ldflags = tuple(ldflags)
     
     return _get_plugin_impl(
         plugin_name,
@@ -130,7 +132,8 @@ def _get_plugin_impl(
     os.chdir(source_folder)
     
     try:
-        cpp.load(verbose=verbose, name=plugin_name, extra_cflags=cflags, extra_cuda_cflags=['-O2'], sources=source_files, extra_ldflags=ldflags, with_cuda=cuda)
+        module = cpp.load(verbose=verbose, name=plugin_name, extra_cflags=cflags, extra_cuda_cflags=['-O2'], sources=source_files, extra_ldflags=list(ldflags), with_cuda=cuda)
+        return module
     except ImportError as e:
         if e.msg.startswith('DLL load failed') and cuda:
             # Debug with:
