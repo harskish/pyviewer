@@ -143,6 +143,7 @@ def _get_plugin_impl(
             print('DLL load failed, make sure all DLLs required by module are available (NB: $PATH and cwd are not searched)')
     except Exception as e:
         print('Custom op compilation failed:', e)
+        return None
     finally:
         os.chdir(original)
     return importlib.import_module(plugin_name)

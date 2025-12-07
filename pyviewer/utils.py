@@ -50,7 +50,8 @@ class PannableArea():
         self.clear_color = (0, 0, 0, 1) # in [0, 1]
 
         # Canvas onto which resmapled image is drawn
-        self.canvas_tex = None
+        self.canvas_tex: int = None
+        self.canvas_tex_ref: imgui.ImTextureRef = None
         self.canvas_fb = None
         self.canvas_w = 0 # size in screen coordinates
         self.canvas_h = 0 # size in screen coordinates
@@ -193,6 +194,7 @@ class PannableArea():
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, self.canvas_interp)
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, self.canvas_interp)
         self.resize_canvas(canvas_width, canvas_height)
+        self.canvas_tex_ref = imgui.ImTextureRef(self.canvas_tex)
 
         # Framebuffer for offscreen rendering
         self.canvas_fb = gl.glGenFramebuffers(1)
@@ -319,7 +321,7 @@ class PannableArea():
         cW, cH, # canvas size
         in_type=gl.GL_TEXTURE_2D,
         pan_enabled=True,
-    ):
+    ) -> imgui.ImTextureRef:
         assert in_type in [gl.GL_TEXTURE_2D, gl.GL_TEXTURE_RECTANGLE], \
             'Expected input type GL_TEXTURE_2D or GL_TEXTURE_RECTANGLE'
 
@@ -393,7 +395,7 @@ class PannableArea():
         gl.glClearColor(*last_clear_color)
         gl.glViewport(*last_viewport)
 
-        return self.canvas_tex
+        return self.canvas_tex_ref
 
     def set_callbacks(self, glfw_window):
         self.window = glfw_window

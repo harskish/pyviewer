@@ -9,7 +9,7 @@ import time
 # https://github.com/python-pillow/Pillow/issues/8959#issuecomment-2883368474
 from PIL import Image, __version__ as PIL_VER
 if [int(v) for v in PIL_VER.split('.')] < [11, 3, 0]:
-    import pillow_avif
+    import pillow_avif # pip install pillow-avif-plugin
 
 plugin = custom_ops.get_plugin('MetalGLInterop', 'metal_gl_interop.mm',
     Path(__file__).parent.parent/'pyviewer/custom_ops', cuda=False)
@@ -51,8 +51,19 @@ if __name__ == "__main__":
         def get_input(self, scale=1.0, fp=True):
             """Get scaled input image as cached GPU tensor"""
             img = Image.open(Path(__file__).parent / '../docs/testimg1.avif').convert('RGBA') # 6000x4000
-            img = img.resize([int(d*scale) for d in img.size])
+            # Calculate target dimensions with scale
+            w, h = img.size
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            
+            # Adjust width to ensure bytesPerRow is 16-byte aligned
+            alignment = 4 if not fp else 2
+            new_w = (new_w // alignment) * alignment
+            
+            img = img.resize([new_w, new_h])
             arr = np.array(img, dtype=np.float16) / 255.0 if fp else np.array(img) # HWC
+            bytesPerRow = arr.nbytes / arr.shape[0]
+            assert bytesPerRow % 16 == 0.0, f"bytesPerRow {bytesPerRow} is not 16-byte aligned"
             print(arr.shape)
             return torch.tensor(arr, device='mps')
         

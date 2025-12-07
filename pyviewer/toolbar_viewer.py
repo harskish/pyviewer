@@ -290,9 +290,7 @@ class ToolbarViewer:
                 pad = max_x - cursor - 300 - 30*s
                 imgui.invisible_button('##hidden', size=(pad, 1))
                 with imgui_item_width(300): # size not dependent on s => prevents slider drift
-                    max_scale = max(self.v._imgui_fonts.keys()) / self.v.default_font_size
-                    min_scale = min(self.v._imgui_fonts.keys()) / self.v.default_font_size
-                    ch, val = imgui.slider_float('', s, min_scale, max_scale)
+                    ch, val = imgui.slider_float('', s, 0.1, 4.0)
                 
                 # Reset scale with right click (consistent with AutoUI widgets)
                 if imgui.is_item_hovered():

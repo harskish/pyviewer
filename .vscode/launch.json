@@ -52,19 +52,5 @@
             "console": "integratedTerminal",
             "justMyCode": false
         },
-        {
-            "name": "Raw GL docking test",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/pyviewer/raw_gl_docking_test.py",
-            "console": "integratedTerminal",
-            "justMyCode": false
-        },
-        {
-            "name": "glfw3 python backend",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/pyviewer/imgui_bundle_glfw3_backend.py",
-        }
     ]
 }

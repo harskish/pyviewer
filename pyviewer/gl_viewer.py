@@ -424,20 +424,8 @@ class viewer:
         imgui.backends.glfw_init_for_opengl(window_address, True)
         imgui.backends.opengl3_init(glsl_version)
 
-        #self.hdpi_factor = 1 / glfw.get_monitor_content_scale(glfw.get_primary_monitor())[0]
-        #imgui.get_io().font_global_scale = self.hdpi_factor
-        font = self.get_default_font()
-
-        # MPLUSRounded1c-Medium.ttf: no content for sizes >35
-        # Apple M1, WSL have have low texture count limits
-        # Too many fonts => GLFWRenderer.refresh_font_texture() will be slow
-        font_sizes = range(9, 36, 2) if 'darwin' in platform else range(8, 36, 1) # make sure to include 15 (default font size)
-        font_sizes = [int(s) for s in font_sizes]
-        handle = imgui.get_io().fonts
-        glyph_range = None #handle.get_glyph_ranges_chinese_full() # NB: full Chinese range super slow
-        self._imgui_fonts = {
-            size: handle.add_font_from_file_ttf(font, size, glyph_ranges_as_int_list=glyph_range) for size in font_sizes
-        }
+        # Single dynamically resizable font
+        self.default_font = imgui.get_io().fonts.add_font_from_file_ttf(self.get_default_font(), self.default_font_size)
 
         # TODO: add scale field to font?
         # github.com/harskish/pyplotgui/blob/dev/version-2.0/imgui/core.pyx#L2344
@@ -483,9 +471,7 @@ class viewer:
 
     # Scales fonts and sliders/etc
     def set_ui_scale(self, scale):
-        k = self.default_font_size
-        self.set_font_size(k*scale)
-        self.ui_scale = self.font_size / k
+        self.ui_scale = scale
 
     def set_interp(self, min, mag, update_existing=True):
         self.tex_interp_mode_min = min
@@ -539,14 +525,11 @@ class viewer:
 
     @property
     def font_size(self):
-        return self._cur_font_size
+        return self.default_font_size * self.ui_scale
 
     @property
     def spacing(self):
-        return round(self._cur_font_size * 0.3) # 0.4
-
-    def set_font_size(self, target): # Applied on next frame.
-        self._cur_font_size = min((abs(key - target), key) for key in self._imgui_fonts.keys())[1]
+        return self.default_font_size * self.ui_scale * 0.3
 
     def toggle_fullscreen(self):
         self.fullscreen = not self.fullscreen
@@ -660,7 +643,7 @@ class viewer:
                 imgui.new_frame()
 
                 # Tero viewer:
-                imgui.push_font(self._imgui_fonts[self._cur_font_size])
+                imgui.push_font(self.default_font, self.default_font_size * self.ui_scale)
                 self.set_default_style(spacing=self.spacing, indent=self.font_size, scrollbar=self.font_size+4)
         
                 loopfunc(self)

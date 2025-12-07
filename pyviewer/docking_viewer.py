@@ -17,7 +17,7 @@ import OpenGL.GL as gl
 
 from .gl_viewer import _texture
 from .toolbar_viewer import PannableArea
-from .utils import normalize_image_data, float_flip_lsb
+from .utils import normalize_image_data
 from .imgui_themes import theme_deep_dark
 from .easy_dict import EasyDict
 
@@ -119,7 +119,6 @@ class DockingViewer:
         runner_params.app_window_params.window_title = name
         runner_params.app_window_params.window_geometry.size = (1000, 900)
         runner_params.app_window_params.restore_previous_geometry = True
-        runner_params.dpi_aware_params.only_use_font_dpi_responsive = True # automatically handle font scaling
         runner_params.fps_idling.fps_idle = 5.0
 
         # Normally setting no_mouse_input windows flags on containing window is enough,
@@ -139,7 +138,8 @@ class DockingViewer:
         self.tex_upload_ms = 0.0 # gl textture upload stats
         
         self.initial_font_size = 15
-        self.fonts: list[hello_imgui.FontDpiResponsive] = []
+        self.default_font: imgui.ImFont = None
+        self.fonts: list[imgui.ImFont] = []
         self.window: glfw._GLFWwindow = None
         self._window_title = name
         self._orig_window_title = name
@@ -193,17 +193,24 @@ class DockingViewer:
             self.setup_theme() # user-overridable
             self.scale_style_sizes()
             self.pan_handler.clear_color = imgui.get_style().color_(imgui.Col_.window_bg) # match theme_deep_dark
+        
+        def pre_new_frame_wrapper():
+            # Push default font at current size
+            imgui.push_font(self.default_font, self.initial_font_size * self.ui_scale)
+            self.pre_new_frame()
 
         def after_swap():
             self.first_frame = False
             glfw.set_window_title(self.window, self._window_title) # from main thread
+            imgui.pop_font() # pop scaled default font pushed in `pre_new_frame_wrapper`
+
 
         runner_params.callbacks.post_init = post_init_fun
         runner_params.callbacks.before_exit = before_exit
         runner_params.callbacks.post_init_add_platform_backend_callbacks = add_backend_cbk
         runner_params.callbacks.load_additional_fonts = self.load_fonts
         runner_params.callbacks.setup_imgui_style = setup_theme_cbk
-        runner_params.callbacks.pre_new_frame = self.pre_new_frame
+        runner_params.callbacks.pre_new_frame = pre_new_frame_wrapper
         runner_params.callbacks.after_swap = after_swap
 
         self.show_app_menu = False
@@ -266,15 +273,8 @@ class DockingViewer:
     def set_ui_scale(self, scale: float):
         if self._ui_scale == scale:
             return # setter might be called repeatedly e.g. via imgui.slider
-        old_ui_scale = self._ui_scale
         self._ui_scale = scale
         self.scale_style_sizes()
-        
-        # Rescale all fonts (even if they are merged)
-        for font in self.fonts:
-            font.font_size = font.font_size * self.ui_scale / old_ui_scale
-        
-        self.trigger_font_reload()
 
     # Includes keyboard (glfw.KEY_A) and mouse (glfw.MOUSE_BUTTON_LEFT)
     def keydown(self, key: Union[int, str]):
@@ -286,8 +286,8 @@ class DockingViewer:
     def scale_style_sizes(self):
         """More conservative alternative to imgui.get_style().scale_all_sizes()"""
         factor = self.ui_scale
-        font_size = 9 * factor #self._cur_font_size
-        spacing = round(font_size * 0.3)
+        font_size = 9 * factor
+        spacing = font_size * 0.3 #round(font_size * 0.3)
 
         s = imgui.get_style()
         s.window_padding        = [spacing, spacing]
@@ -329,7 +329,7 @@ class DockingViewer:
             #min_scale = min(self.v._imgui_fonts.keys()) / self.v.default_font_size
             
             imgui.set_next_item_width(300) # size not dependent on s => prevents slider drift
-            ch, val = imgui.slider_float('', s, min_scale, max_scale, format="%.1f")
+            ch, val = imgui.slider_float('', s, min_scale, max_scale, format="%.2f")
             if imgui.is_item_hovered():
                 if imgui.is_mouse_clicked(imgui.MouseButton_.right):
                     (ch, val) = (True, 1.0)
@@ -351,14 +351,6 @@ class DockingViewer:
         Good place to add new dockable windows etc.
         """
         pass
-
-    def trigger_font_reload(self):
-        """
-        Trigger font reload after changing font.font_size.
-        Used in conjunction with hello_imgui.load_font_dpi_responsive().
-        """
-        io = imgui.get_io()
-        io.font_global_scale = float_flip_lsb(io.font_global_scale) # trigger reload
     
     def setup_layout(self) -> hello_imgui.DockingParams:
         """
@@ -478,7 +470,8 @@ class DockingViewer:
         # Load the main font
         size = self.initial_font_size * self.ui_scale
         external = hello_imgui.FontLoadingParams(inside_assets=False)
-        self.fonts.append(hello_imgui.load_font_dpi_responsive(self.get_default_font_path(), size, external))
+        self.default_font = hello_imgui.load_font(self.get_default_font_path(), size, external)
+        self.fonts.append(self.default_font)
         
         # Merge with Font Awesome 6 (fontawesome.com/search?o=r&ic=free&s=solid&ip=classic)
         # Both font handles must be kept around for resizing
@@ -486,10 +479,10 @@ class DockingViewer:
             # TODO: if playing with UI scale slider: due to non-default range, will eventually trigger
             # github.com/pthom/hello_imgui/blob/c98503154f66/src/hello_imgui/impl/hello_imgui_font.cpp#L71
             font_loading_params_title_icons = hello_imgui.FontLoadingParams(merge_to_last_font=True, use_full_glyph_range=True)
-            self.fonts.append(hello_imgui.load_font_dpi_responsive(
+            self.fonts.append(hello_imgui.load_font(
                 "fonts/Font_Awesome_6_Free-Solid-900.otf", size, font_loading_params_title_icons))
         
-        self.code_font = hello_imgui.load_font_dpi_responsive(self.get_mono_font_path(), size, external)
+        self.code_font = hello_imgui.load_font(self.get_mono_font_path(), size, external)
         self.fonts.append(self.code_font)
     
     def get_window(self, name: str) -> hello_imgui.DockableWindow | None:
