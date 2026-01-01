@@ -40,6 +40,8 @@ class PannableArea():
         self.is_panning = False # currently panning?
         self.pan_enabled = True
         self.zoom_enabled = True
+        self.snap_enabled = True # snap zoom with RMB
+        self.reset_enabled = True # reset zoom with LMB double click
         # Pan magnitude: image edges at +-0.5 at unit scale
         # When setting integer-scale zooms from ui buttons: all samples might end up perfectly at texel edges
         # => initialize translation with small irrational number as a simple (albeit imperfect) fix
@@ -616,9 +618,9 @@ class PannableArea():
             self.pan = tuple(s+d for s,d in zip(self.pan, self.pan_delta))
             self.pan_start = self.pan_delta = (0, 0)
             self.is_panning = False
-        if imgui.is_mouse_double_clicked(0) and self.mouse_hovers_content(): # reset view
+        if self.reset_enabled and imgui.is_mouse_double_clicked(0) and self.mouse_hovers_content(): # reset view
             self.reset_xform()
-        if imgui.is_mouse_clicked(1) and self.mouse_hovers_content(): # right click: native res
+        if self.snap_enabled and imgui.is_mouse_clicked(1) and self.mouse_hovers_content(): # right click: native res
             self.snap_nearest_fractional_scale()
     
     @property

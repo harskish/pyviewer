@@ -232,7 +232,7 @@ class DockingViewer:
         )
 
         # Allow splitting into separate windows?
-        runner_params.imgui_window_params.enable_viewports = True
+        runner_params.imgui_window_params.enable_viewports = False
         
         # Docking layout
         runner_params.docking_params = self.setup_layout()
@@ -529,6 +529,8 @@ class DockingViewer:
         dtype_bits = img_hwc.dtype.itemsize * 8
         H, W, C = img_hwc.shape
         
+        img_hwc = normalize_image_data(img_hwc, img_hwc.dtype) if self.normalize else img_hwc
+        
         # RGBA texture uploads are much faster on some drivers
         if img_hwc.shape[-1] == 3:
             maxval = 1 if is_fp else 2**(dtype_bits - int(is_signed)) - 1
@@ -536,16 +538,13 @@ class DockingViewer:
                 img_hwc = np.concatenate([img_hwc, maxval * np.ones((H, W, 1), dtype=img_hwc.dtype)], axis=-1)
             else:
                 img_hwc = torch.cat([img_hwc, self.alpha_ch_torch(H, W, maxval, img_hwc.dtype, img_hwc.device)], dim=2)
-        
-        img_hwc = normalize_image_data(img_hwc, img_hwc.dtype) if self.normalize else img_hwc
 
         # Eventually uploaded by UI thread
         self.image = img_hwc # if is_np else img_hwc.cpu().numpy()
         self.img_shape = [self.image.shape[2], *self.image.shape[:2]] # shape in chw format
         self.img_dt = time.monotonic()
 
-    @dockable(title='Main Output')
-    def output(self):
+    def _main_output_impl(self):
         # Need to do upload from main thread
         if self.img_dt > self.last_upload_dt:
             gl.glFinish()
@@ -570,6 +569,10 @@ class DockingViewer:
         
         draw_list = imgui.get_window_draw_list()
         self.draw_overlay(draw_list)
+
+    @dockable(title='Main Output')
+    def output(self):
+        return self._main_output_impl()
     
     def compute_loop(self):
         print('Compute thread: waiting for start event')
