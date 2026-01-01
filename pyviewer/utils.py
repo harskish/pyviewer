@@ -10,6 +10,7 @@ import os
 import glfw
 import random
 import string
+import math
 import time
 import struct
 from ctypes import c_float
@@ -805,12 +806,46 @@ def get_grid_dims(B):
         S -= 1
     return (B // S, S) # (W, H)
 
-def reshape_grid_np(img_batch):
+def get_grid_dims_ar(batch_nchw, target_aspect_ratio=1.0) -> tuple[int]:
+    """
+    Given an input batch of images, figure out a grid size that best matches the target aspect ratio (W/H)
+    Returns:
+        (cols, rows)
+    """
+    N, C, H, W = batch_nchw.shape
+
+    # Enumerate all factor pairs (cols, rows) such that cols * rows == B
+    candidates = set()
+    limit = int(N**0.5) + 1
+    for r in range(1, limit):
+        if N % r == 0:
+            a = N // r
+            b = r
+            candidates.update([(a, b), (b, a)])
+
+    # Choose candidate whose overall image aspect (cols*W / rows*H) best matches target_aspect_ratio
+    if target_aspect_ratio <= 0 or not np.isfinite(target_aspect_ratio):
+        target_aspect_ratio = 1.0
+
+    best = None
+    best_score = None
+    for cols, rows in candidates:
+        overall_aspect = (cols * W) / (rows * H)
+        score = abs(math.log(overall_aspect / target_aspect_ratio)) # log ratio: over/under scaling treated symmetrically
+        tie_break = abs(cols - rows) # prefer more square grids
+        if best is None or score < best_score[0] or (score == best_score[0] and tie_break < best_score[1]):
+            best = (cols, rows)
+            best_score = (score, tie_break)
+
+    return best # cols, rows
+
+
+def reshape_grid_np(img_batch, target_aspect_ratio=None):
     if isinstance(img_batch, list):
         img_batch = np.concatenate(img_batch, axis=0) # along batch dim
-    
+
     B, C, H, W = img_batch.shape
-    cols, rows = get_grid_dims(B)
+    cols, rows = get_grid_dims(B) if target_aspect_ratio is None else get_grid_dims_ar(img_batch, target_aspect_ratio)
 
     img_batch = np.reshape(img_batch, [rows, cols, C, H, W])
     img_batch = np.transpose(img_batch, [0, 3, 1, 4, 2])
@@ -818,13 +853,13 @@ def reshape_grid_np(img_batch):
 
     return img_batch
 
-def reshape_grid_torch(img_batch):
+def reshape_grid_torch(img_batch, target_aspect_ratio=None):
     import torch
     if isinstance(img_batch, list):
         img_batch = torch.cat(img_batch, axis=0) # along batch dim
     
     B, C, H, W = img_batch.shape
-    cols, rows = get_grid_dims(B)
+    cols, rows = get_grid_dims(B) if target_aspect_ratio is None else get_grid_dims_ar(img_batch, target_aspect_ratio)
 
     img_batch = img_batch.reshape(rows, cols, C, H, W)
     img_batch = img_batch.permute(0, 3, 1, 4, 2)
@@ -832,8 +867,9 @@ def reshape_grid_torch(img_batch):
 
     return img_batch
 
-def reshape_grid(img_nchw):
-    return reshape_grid_np(img_nchw) if isinstance(img_nchw, np.ndarray) else reshape_grid_torch(img_nchw)
+def reshape_grid(img_nchw, target_aspect_ratio=None):
+    fun = reshape_grid_np if isinstance(img_nchw, np.ndarray) else reshape_grid_torch
+    return fun(img_nchw, target_aspect_ratio)
 
 def sample_seeds(N, base=None):
     if base is None:
