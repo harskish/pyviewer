@@ -21,6 +21,14 @@
             "justMyCode": false
         },
         {
+            "name": "Gallery",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/gallery_layout.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
             "name": "HDR test",
             "type": "debugpy",
             "request": "launch",
