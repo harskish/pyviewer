@@ -332,6 +332,9 @@ class viewer:
         fname = inifile or "".join(c for c in title.lower() if c.isalnum())
         self._inifile = Path(fname).with_suffix('.ini')
 
+        # imgui_bundle only supports X11 (as of 10.1.2026)
+        glfw.init_hint(glfw.PLATFORM, glfw.PLATFORM_X11)
+
         if not glfw.init():
             raise RuntimeError('GLFW init failed')
         
