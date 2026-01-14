@@ -90,6 +90,9 @@ class SingleImageViewer:
 
         # Pausing (via pause key on keyboard) speeds up computation
         self.paused = mp.Value(ctypes.c_bool, paused, lock=False)
+
+        # N key: accept next image, then pause
+        self.next = mp.Value(ctypes.c_bool, False, lock=False)
         
         # For waiting until process has started
         self.started = mp.Value(ctypes.c_bool, False, lock=False)
@@ -177,7 +180,10 @@ class SingleImageViewer:
     # Called from main thread
     def draw(self, img_hwc=None, img_chw=None, ignore_pause=False, change_mode=True):
         # Paused or closed
-        if (self.paused.value and not ignore_pause) or not self.ui_process.is_alive():
+        if not self.ui_process.is_alive():
+            return
+        
+        if (self.paused.value and not ignore_pause and not self.next.value):
             return
 
         # Activate image mode
@@ -218,6 +224,10 @@ class SingleImageViewer:
             self.latest_shape.w = img_hwc.shape[1]
             self.latest_shape.c = img_hwc.shape[2]
             self.has_new_img.value = 1
+
+        
+        # Image has been updated, turn off next flag
+        self.next.value = False
 
     # Called from main thread
     def plot(self, y, *, x=None, ignore_pause=False, change_mode=True):
@@ -273,6 +283,9 @@ class SingleImageViewer:
         if v.keyhit(glfw.KEY_PAUSE) or v.keyhit(glfw.KEY_P):
             self.paused.value = not self.paused.value
             self.last_ui_active = time.monotonic()
+        if v.keyhit(glfw.KEY_N):
+            self.next.value = True
+            self.last_ui_active = time.monotonic()
         if v.keyhit(glfw.KEY_M):
             self.viz_mode.value = (self.viz_mode.value + 1) % len(VizMode) # loop through modes
             self.last_ui_active = time.monotonic()
@@ -321,13 +334,16 @@ class SingleImageViewer:
                     implot.plot_scatter('', x, y)
                 implot.end_plot()
 
-        if self.paused.value:
+        # Paused (and optionally waiting for next image)
+        if self.paused.value or self.next.value:
+            label = 'NEXT' if self.next.value else 'PAUSED'
             inactive = (time.monotonic() - self.last_ui_active) > 2
-            imgui.push_font(v._imgui_fonts[31])
+            imgui.push_font(v.default_font, 31)
             dl = imgui.get_window_draw_list()
-            dl.add_rect_filled((5, 8), (115, 43), imgui.color_convert_float4_to_u32([0,0,0,1]))
+            width = 110 / 6 * len(label)
+            dl.add_rect_filled((5, 8), (5+width, 43), imgui.color_convert_float4_to_u32([0,0,0,1]))
             text_color = (0.8,0.8,0.8,1) if inactive else (1,1,1,1)
-            dl.add_text((20, 10), imgui.color_convert_float4_to_u32(text_color), 'PAUSED')
+            dl.add_text((20, 10), imgui.color_convert_float4_to_u32(text_color), label)
             imgui.pop_font()
             
             # Relatively long delay until "inactive"
