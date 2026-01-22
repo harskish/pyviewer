@@ -340,7 +340,7 @@ class SingleImageViewer:
             inactive = (time.monotonic() - self.last_ui_active) > 2
             imgui.push_font(v.default_font, 31)
             dl = imgui.get_window_draw_list()
-            width = 110 / 6 * len(label)
+            width = 75 if self.next.value else 110
             dl.add_rect_filled((5, 8), (5+width, 43), imgui.color_convert_float4_to_u32([0,0,0,1]))
             text_color = (0.8,0.8,0.8,1) if inactive else (1,1,1,1)
             dl.add_text((20, 10), imgui.color_convert_float4_to_u32(text_color), label)

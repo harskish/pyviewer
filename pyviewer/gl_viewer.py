@@ -107,8 +107,10 @@ class _texture:
 
     # be sure to del textures if you create a forget them often (python doesn't necessarily call del on garbage collect)
     def __del__(self):
-        if gl is not None:
+        try:
             gl.glDeleteTextures(1, [self.tex])
+        except:
+            pass
 
     @property
     def needs_mipmap(self):
@@ -334,8 +336,15 @@ class viewer:
         self._inifile = Path(fname).with_suffix('.ini')
 
         # Choose appropriate session type
-        if os.environ.get('XDG_SESSION_TYPE', None) != 'wayland':
-            glfw.init_hint(glfw.PLATFORM, glfw.PLATFORM_X11)
+        sess = os.environ.get('XDG_SESSION_TYPE', '')
+        try:
+            if sess == 'wayland':
+                glfw.init_hint(glfw.PLATFORM, glfw.PLATFORM_X11) # imgui_bundle only supports x11
+            if sess == 'x11':
+                glfw.init_hint(glfw.PLATFORM, glfw.PLATFORM_X11)
+        except glfw.GLFWError:
+            print('WARN: Failed to set glfw platform hint')
+            pass
 
         if not glfw.init():
             raise RuntimeError('GLFW init failed')
