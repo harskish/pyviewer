@@ -283,7 +283,7 @@ class SingleImageViewer:
         if v.keyhit(glfw.KEY_PAUSE) or v.keyhit(glfw.KEY_P):
             self.paused.value = not self.paused.value
             self.last_ui_active = time.monotonic()
-        if v.keyhit(glfw.KEY_N):
+        if v.keyhit(glfw.KEY_SPACE) or v.keyhit(glfw.KEY_N):
             self.next.value = True
             self.last_ui_active = time.monotonic()
         if v.keyhit(glfw.KEY_M):
