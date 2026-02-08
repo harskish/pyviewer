@@ -5,6 +5,7 @@ import time
 import threading
 import time
 from typing import Union
+from collections import OrderedDict
 from functools import lru_cache, partial
 
 # Some callbacks broken if imported before imgui_bundle...??
@@ -133,7 +134,7 @@ class DockingViewer:
         self.img_dt: float = 0
         self.img_shape: list = [3, 4, 4] # CHW (to match ToolbarViewer)
         self.last_upload_dt: float = 0
-        self.tex_handle: _texture = None # created after GL init
+        self.texture_pool: OrderedDict[tuple[int, int], _texture] = OrderedDict()
         self.state = EasyDict()
         self.tex_upload_ms = 0.0 # gl textture upload stats
         
@@ -165,7 +166,6 @@ class DockingViewer:
         def post_init_fun():
             #glfw.make_context_current(self.window)
             #glfw.swap_interval(1)  # Enable vsync
-            self.tex_handle = _texture(gl.GL_NEAREST, gl.GL_NEAREST)
             load_settings_cbk()
             self.setup_state()
             self.start_event.set()
@@ -177,7 +177,8 @@ class DockingViewer:
         def before_exit():
             save_settings_cbk()
             self.stop_event.set()
-            del self.tex_handle
+            for handle in self.texture_pool.values():
+                del handle
         
         def add_backend_cbk(*args, **kwargs):
             # Set own glfw callbacks, will be chained by imgui
@@ -544,19 +545,36 @@ class DockingViewer:
         self.img_shape = [self.image.shape[2], *self.image.shape[:2]] # shape in chw format
         self.img_dt = time.monotonic()
 
+    def get_texture(self, W: int, H: int, capacity=10):
+        """Keep a pool of GL textures of different sizes"""
+        key = (W, H)
+        if key not in self.texture_pool:
+            self.texture_pool[key] = _texture(gl.GL_NEAREST, gl.GL_NEAREST)
+        
+        self.texture_pool.move_to_end(key)
+        if len(self.texture_pool) > capacity:
+            self.texture_pool.popitem(last=False)
+        
+        return self.texture_pool[key]
+    
     def _main_output_impl(self):
         # Need to do upload from main thread
         if self.img_dt > self.last_upload_dt:
             gl.glFinish()
             t0 = time.monotonic()
+            
+            # Get gl texture of appropriate size
+            tH, tW, _ = self.image.shape
+            tex_handle = self.get_texture(tW, tH)
+
             if isinstance(self.image, np.ndarray):
-                self.tex_handle.upload_np(self.image)
+                tex_handle.upload_np(self.image)
             elif self.image.device.type == 'cuda':
-                self.tex_handle.upload_torch(self.image)
+                tex_handle.upload_torch(self.image)
             elif self.image.device.type == 'mps':
-                self.tex_handle.upload_torch(self.image)
+                tex_handle.upload_torch(self.image)
             else:
-                self.tex_handle.upload_np(self.image.cpu().numpy())
+                tex_handle.upload_np(self.image.cpu().numpy())
             self.last_upload_dt = time.monotonic()
             self.tex_upload_ms = (self.last_upload_dt - t0) * 1000  # upload time stats
         
@@ -564,7 +582,8 @@ class DockingViewer:
         if self.image is not None:
             tH, tW, _ = self.image.shape
             cW, cH = map(int, imgui.get_content_region_avail())
-            canvas_tex = self.pan_handler.draw_to_canvas(self.tex_handle.tex, tW, tH, cW, cH, self.tex_handle.type)
+            handle = self.get_texture(tW, tH)
+            canvas_tex = self.pan_handler.draw_to_canvas(handle.tex, tW, tH, cW, cH, handle.type)
             imgui.image(canvas_tex, (cW, cH))
         
         draw_list = imgui.get_window_draw_list()
