@@ -41,7 +41,8 @@ const TexFormatInfo *const textureFormatInfoFromMetalPixelFormat(MTLPixelFormat 
 }
 
 typedef struct {
-    CGSize size;
+    CGSize size;              // Allocated texture size
+    CGSize dataSize;          // Current data size (can be smaller)
     const TexFormatInfo *formatInfo;
     CVPixelBufferRef CVPixelBuffer;
     CVMetalTextureRef CVMTLTexture;
@@ -57,7 +58,8 @@ typedef struct {
 } InteropTextureState;
 
 static InteropTextureState state = {
-    .size = {0.0, 0.0},  // { W, H }
+    .size = {0.0, 0.0},       // { W, H }
+    .dataSize = {0.0, 0.0},   // { W, H }
     // other fields zero-initialized
 };
 
@@ -146,6 +148,7 @@ static void interopTextureInit(id<MTLDevice> metalDevice,
     TORCH_CHECK(state.formatInfo, "Unsupported Metal format");
 
     state.size = size;
+    state.dataSize = size;
     state.metalDevice = metalDevice;
     state.openGLContext = glContext;
     state.CGLPixelFormat = glContext.pixelFormat.CGLPixelFormatObj;
@@ -264,6 +267,13 @@ void copy_rasterize(const torch::Tensor &inputHwc) {
             [encoder setRenderPipelineState:gInteropPipeline];
             [encoder setFragmentTexture:srcTexture atIndex:0];
             [encoder setFragmentSamplerState:gInteropSampler atIndex:0];
+            // Set viewport to only render to the valid data region (underlying allocation can be larger)
+            MTLViewport viewport = {
+                0.0, 0.0,
+                (double)W, (double)H,
+                0.0, 1.0
+            };
+            [encoder setViewport:viewport];
             [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
             [encoder endEncoding];
 
@@ -348,15 +358,38 @@ std::tuple<uint64_t, bool> toGlTex(const torch::Tensor &imgHwc) {
     // Choice of shared Metal texture format quite limited (see InteropFormatTable)
     MTLPixelFormat mtlFmtShared = (isFp) ? MTLPixelFormatRGBA16Float : MTLPixelFormatBGRA8Unorm_sRGB;
     
-    // Create new shared texture if dtype or shape changes
+    // Create new shared texture if dtype changes or if data size exceeds allocated size
     bool updated = false;
     CGSize inSize = {CGFloat(imgHwc.size(1)), CGFloat(imgHwc.size(0))}; // W, H
-    if (inSize.width != state.size.width || inSize.height != state.size.height || mtlFmtShared != state.mtlFormat) {
+    
+    // Want to handle aspect ratio changes gracefully
+    CGSize allocSize = {
+        fmax(inSize.width, state.dataSize.width),
+        fmax(inSize.height, state.dataSize.height)
+    };
+    
+    bool needsRealloc = (inSize.width > state.size.width || 
+                         inSize.height > state.size.height || 
+                         mtlFmtShared != state.mtlFormat);
+    
+    if (needsRealloc) {
+        bool sizeGrown = (inSize.width > state.size.width || inSize.height > state.size.height);
+        bool formatChanged = (mtlFmtShared != state.mtlFormat);
+        if (sizeGrown) {
+            fprintf(stderr, "[metal_gl_interop] Growing texture from %.0f x %.0f to %.0f x %.0f\n",
+                    state.size.width, state.size.height, allocSize.width, allocSize.height);
+        }
+        if (formatChanged) {
+            fprintf(stderr, "[metal_gl_interop] Reallocation due to format change\n");
+        }
         interopTextureRelease();
         id<MTLDevice> device = at::mps::MPSDevice::getInstance()->device();
-        interopTextureInit(device, context, mtlFmtShared, inSize);
+        interopTextureInit(device, context, mtlFmtShared, allocSize);
         updated = true;
     }
+    
+    // Always update dataSize for partial writes
+    state.dataSize = inSize;
 
     // Blit approach: only BGR is suppored if incoming data is UInt
     // Shader approach: can take in RGB, convert to BGR during write

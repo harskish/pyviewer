@@ -553,7 +553,8 @@ class DockingViewer:
         
         self.texture_pool.move_to_end(key)
         if len(self.texture_pool) > capacity:
-            self.texture_pool.popitem(last=False)
+            _, hndl = self.texture_pool.popitem(last=False)
+            gl.glDeleteTextures(hndl.tex_2d)
         
         return self.texture_pool[key]
     

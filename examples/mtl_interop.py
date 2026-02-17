@@ -28,8 +28,9 @@ if __name__ == "__main__":
             img = self.get_input(self.scale, self.use_fp)
             
             # Store the new texture handle
-            self.tex_handle.upload_np(img.cpu().numpy())
-            self.tex_handle_2d = self.tex_handle.tex
+            handle = self.get_texture(img.shape[1], img.shape[0])
+            handle.upload_np(img.cpu().numpy())
+            self.tex_handle_2d = handle.tex
             self.tex_handle_rect, _ = plugin.gl_tex_rect(img)
             self.set_interp()
 
@@ -89,8 +90,9 @@ if __name__ == "__main__":
                     if ch:
                         self.set_interp()
                 else:
-                    self.tex_handle.upload_np(curr.cpu().numpy())
-                    self.tex_handle_2d = self.tex_handle.tex
+                    handle = self.get_texture(curr.shape[1], curr.shape[0])
+                    handle.upload_np(curr.cpu().numpy())
+                    self.tex_handle_2d = handle.tex
                 torch.mps.synchronize()
                 dt_ns = time.monotonic_ns() - t0
             
