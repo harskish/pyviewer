@@ -28,7 +28,11 @@ if "torch" in sys.modules:
     import torch # for syntax highlighting
 
 def is_tensor(obj):
-    return "torch" in sys.modules and torch.is_tensor(obj)
+    if "torch" not in sys.modules:
+        return False
+    global torch
+    torch = sys.modules['torch'] # store handle if imported after docking_viewer
+    return torch.is_tensor(obj)
 
 import importlib.util
 if not importlib.util.find_spec("torch"):
