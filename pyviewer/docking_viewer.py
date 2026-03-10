@@ -611,7 +611,7 @@ class DockingViewer:
         print('Compute thread: received stop event, exiting')
 
     def reset_window_title(self):
-        self._window_title = self._orig_window_title
+        self.set_window_title(self._orig_window_title, suffix=False)
     
     def set_window_title(self, title, suffix=False):
         """
