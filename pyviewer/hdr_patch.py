@@ -2,19 +2,29 @@ import sys
 import shutil
 import site
 import platform
+import os
 from enum import Enum
 from pathlib import Path
 
-# Experimental MacOS EDR (HDR) patch
-# Patched sources at: https://github.com/harskish/glfw
+# Experimental HDR patch for MacOS and Linux (Wayland)
+# Patched sources at: https://github.com/harskish/glfw/tree/tom94_plus_IMS212
 
 # imgui-bundle currently uses pinned GLFW v3.3.8
 # (https://github.com/pthom/imgui_bundle/tree/main/external/glfw)
 # => hdr version based on pre-3.5.0, minor version mismatch here, hopefully works fine
+
+# MacOS: replace dylib in site packages
 orig = Path(site.getsitepackages()[0]) / 'imgui_bundle' / 'libglfw.3.dylib'
 backup = orig.with_name('backup_libglfw.3.dylib')
 patched = Path(__file__).parent / 'libglfw.3.5.dylib'
 is_macos = platform.system() == 'Darwin'
+
+# Wayland: just set env variable for glfw itself
+is_linux = platform.system() == 'Linux'
+patched_linux = Path(__file__).parent / 'libglfw.so.3.5'
+
+GLFW_FLOATBUFFER = 0x00021011
+GLFW_WAYLAND_COLOR_MANAGEMENT = 0x00026002
 
 class Mode(int, Enum):
     UNKNOWN = 0
@@ -28,12 +38,27 @@ if is_macos and not backup.is_file():
     assert orig.is_file(), 'Could not find imgui-bundle\'s original libglfw'
     shutil.copy2(orig, backup)
 
+def configure_pyglfw_library() -> None:
+    if not is_linux:
+        return
+
+    assert patched_linux.is_file(), 'Could not find patched libglfw.so.3.5'
+    os.environ['PYGLFW_LIBRARY'] = patched_linux.as_posix()
+    
+    # Load patched lib by importing glfw
+    import glfw
+    glfw._glfw._name == patched_linux.as_posix()
+
 def use_patched():
     global CUR_MODE
     if is_macos and CUR_MODE != Mode.PATCHED:
         assert 'glfw' not in sys.modules, 'glfw already imported, cannot patch'
         assert patched.is_file(), 'Could not find patched libglfw'
         shutil.copy2(patched, orig)
+        CUR_MODE = Mode.PATCHED
+    elif is_linux and CUR_MODE != Mode.PATCHED:
+        assert 'glfw' not in sys.modules, 'glfw already imported, cannot patch'
+        configure_pyglfw_library()
         CUR_MODE = Mode.PATCHED
 
 def use_original():
@@ -42,6 +67,9 @@ def use_original():
         assert 'glfw' not in sys.modules, 'glfw already imported, cannot patch'
         assert backup.is_file(), 'Could not find backed-up libglfw'
         shutil.copy2(backup, orig)
+        CUR_MODE = Mode.ORIGINAL
+    elif is_linux and CUR_MODE != Mode.ORIGINAL:
+        # Wayland: no-op
         CUR_MODE = Mode.ORIGINAL
 
 def get_edr_range(glfw_window, gamma=1) -> tuple[float, float, float]:
@@ -52,7 +80,7 @@ def get_edr_range(glfw_window, gamma=1) -> tuple[float, float, float]:
         ref_val: reference maximum rgb component value (unused?)
         cur_val: current maximum displayable value without clipping
     """
-    if CUR_MODE != Mode.PATCHED:
+    if CUR_MODE != Mode.PATCHED or not is_macos:
         return (1.0, 1.0, 1.0) # standard LDR range
     
     import glfw

@@ -9,7 +9,8 @@ from collections import OrderedDict
 from functools import lru_cache, partial
 
 # Some callbacks broken if imported before imgui_bundle...??
-assert 'glfw' not in sys.modules or 'imgui_bundle' in sys.modules, 'glfw should be imported after pyviewer'
+if sys.platform == 'Darwin':
+    assert 'glfw' not in sys.modules or 'imgui_bundle' in sys.modules, 'glfw should be imported after pyviewer'
 
 from imgui_bundle.demos_python.demo_utils import demos_assets_folder
 from imgui_bundle import hello_imgui, glfw_utils, imgui, immapp # type: ignore
@@ -154,8 +155,8 @@ class DockingViewer:
         self.ui_tid = threading.get_native_id() # main thread
 
         # Check if HDR mode has been turned on
-        from pyviewer import _macos_hdr_patch
-        self.hdr = (_macos_hdr_patch.CUR_MODE == _macos_hdr_patch.Mode.PATCHED)
+        from pyviewer import hdr_patch
+        self.hdr = (hdr_patch.CUR_MODE == hdr_patch.Mode.PATCHED)
         
         # Normalize images before showing?
         self.normalize = normalize if not self.hdr else False
@@ -249,6 +250,13 @@ class DockingViewer:
         ini_path = Path(hello_imgui.ini_folder_location(runner_params.ini_folder_type)) / runner_params.ini_filename
         print(f'INI path: {ini_path}')
 
+        # Wayland HDR: setup color management
+        if self.hdr and hdr_patch.is_linux:
+            try:
+                glfw.init_hint(hdr_patch.GLFW_WAYLAND_COLOR_MANAGEMENT, glfw.TRUE)
+            except:
+                raise RuntimeError('GLFW init hint failed, make sure glfw is imported before pyviewer/imgui_bundle')
+        
         glfw.init()
         if self.hdr:
             glfw.window_hint(glfw.RED_BITS, 16)

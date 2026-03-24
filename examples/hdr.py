@@ -1,4 +1,5 @@
-from pyviewer import _macos_hdr_patch; _macos_hdr_patch.use_patched()
+from pyviewer import hdr_patch; hdr_patch.use_patched()
+#import glfw
 from pyviewer.docking_viewer import DockingViewer, dockable
 from imgui_bundle import imgui
 import numpy as np
@@ -20,20 +21,20 @@ img = img[:H, :W, :]
 
 class HDRViewer(DockingViewer):
     def setup_state(self):
-        self.brightness = 1.0
-        self.auto_bright = True
+        self.brightness = 2.0
+        self.auto_bright = False
     
     def compute(self):
         self.update_image(img_hwc=self.brightness*img)
 
     @dockable
     def toolbar(self):
-        vmax, vref, vcur = _macos_hdr_patch.get_edr_range(self.window, gamma=2.2)
+        vmax, vref, vcur = hdr_patch.get_edr_range(self.window, gamma=2.2)
         if self.auto_bright:
             self.brightness = vcur # current highest value that won't clip
         
         imgui.text(f'EDR headroom: cur={vcur:.2f}, ref={vref:.2f}, max{vmax:.2f}')
-        self.brightness = imgui.slider_float('Brightness', self.brightness, 0.0, vmax)[1]
+        self.brightness = imgui.slider_float('Brightness', self.brightness, 0.0, 8 if vmax == 1 else vmax)[1]
         self.auto_bright = imgui.checkbox('Automatic brightness', self.auto_bright)[1]
 
 if __name__ == "__main__":

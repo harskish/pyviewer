@@ -24,6 +24,7 @@ pkgs.mkShell {
     pkgs.bashInteractive
     pkgs.ninja
   ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+    pkgs.libglvnd
     pkgs.libGLU
     pkgs.glib  # cv2: libgthread
     pkgs.glew
@@ -32,7 +33,6 @@ pkgs.mkShell {
     pkgs.cudatoolkit
     pkgs.cudaPackages.cudnn
     pkgs.cudaPackages.cuda_cudart
-    pkgs.clang_19 # FastIsotropicMEdian
   ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
     # github.com/NixOS/nixpkgs/blob/25.05/pkgs/development/python-modules/torchvision/default.nix#L64
     pkgs.apple-sdk_15
@@ -47,7 +47,18 @@ pkgs.mkShell {
     uv pip uninstall ninja  # use nixpkgs version
   '';
   
-  #LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (with pkgs; [
-  #  wayland
-  #]);
+  LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (with pkgs; [
+    stdenv.cc.cc
+    libjpeg # actually libjpeg-turbo
+  ] ++ lib.optionals stdenv.hostPlatform.isLinux [
+    libglvnd # needed for torch.cuda
+    xorg.libX11  # imgui-bundle
+    xorg.libXext # imgui-bundle
+    wayland
+    libGL    # for libGL.so
+    libxkbcommon
+    cudatoolkit
+    libz     # numpy
+    glib
+  ]);
 }
