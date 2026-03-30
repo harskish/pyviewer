@@ -46,8 +46,7 @@ def configure_pyglfw_library() -> None:
     os.environ['PYGLFW_LIBRARY'] = patched_linux.as_posix()
     
     # Load patched lib by importing glfw
-    import glfw
-    glfw._glfw._name == patched_linux.as_posix()
+    wl_import_glfw()
 
 def use_patched():
     global CUR_MODE
@@ -116,3 +115,48 @@ def get_edr_range(glfw_window, gamma=1) -> tuple[float, float, float]:
 
     # Return raw floats
     return max_val.value**(1/gamma), ref_val.value**(1/gamma), cur_val.value**(1/gamma)
+
+
+import ctypes
+def wl_import_glfw():
+    import glfw
+    glfw._glfw._name == patched_linux.as_posix(), 'Did not load patched library'
+
+    import wayland # python-wayland
+    
+    from ctypes import cast
+    win = ctypes.c_void_p
+    lib = glfw._glfw
+    
+    def window_ptr(window):
+        return cast(window, win)
+
+    lib.glfwGetWindowSdrWhiteLevel.argtypes = [win]
+    lib.glfwGetWindowSdrWhiteLevel.restype = ctypes.c_float
+    setattr(glfw, 'glfwGetWindowSdrWhiteLevel', lambda window: lib.glfwGetWindowSdrWhiteLevel(window_ptr(window)))
+
+    lib.glfwGetWindowMaxLuminance.argtypes = [win]
+    lib.glfwGetWindowMaxLuminance.restype = ctypes.c_float
+    setattr(glfw, 'glfwGetWindowMaxLuminance', lambda window: lib.glfwGetWindowMaxLuminance(window_ptr(window)))
+
+    def get_transfer_function(window) -> str:
+        transf = lib.glfwGetWindowTransfer(window_ptr(window))
+        for t in wayland.wp_color_manager_v1.transfer_function:
+            if t == transf:
+                return t.name
+        return f'unknown ({transf})'
+    
+    lib.glfwGetWindowTransfer.argtypes = [win]
+    lib.glfwGetWindowTransfer.restype = ctypes.c_uint32
+    setattr(glfw, 'glfwGetWindowTransfer', get_transfer_function)
+
+    def get_primaries(window) -> str:
+        prim = lib.glfwGetWindowPrimaries(window_ptr(window))
+        for p in wayland.wp_color_manager_v1.primaries:
+            if p == prim:
+                return p.name
+        return f'unknown ({prim})'
+    
+    lib.glfwGetWindowPrimaries.argtypes = [win]
+    lib.glfwGetWindowPrimaries.restype = ctypes.c_uint32
+    setattr(glfw, 'glfwGetWindowPrimaries', get_primaries)

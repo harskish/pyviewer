@@ -1,5 +1,5 @@
 from pyviewer import hdr_patch; hdr_patch.use_patched()
-#import glfw
+import glfw
 from pyviewer.docking_viewer import DockingViewer, dockable
 from imgui_bundle import imgui
 import numpy as np
@@ -34,6 +34,12 @@ class HDRViewer(DockingViewer):
             self.brightness = vcur # current highest value that won't clip
         
         imgui.text(f'EDR headroom: cur={vcur:.2f}, ref={vref:.2f}, max{vmax:.2f}')
+        if glfw.get_platform() == glfw.PLATFORM_WAYLAND:
+            imgui.text(f'SDR white: {glfw.glfwGetWindowSdrWhiteLevel(self.window)}')
+            imgui.text(f'Max luminance: {glfw.glfwGetWindowMaxLuminance(self.window)}')
+            imgui.text(f'Transfer function: {glfw.glfwGetWindowTransfer(self.window)}')
+            imgui.text(f'Primaries: {glfw.glfwGetWindowPrimaries(self.window)}')
+        
         self.brightness = imgui.slider_float('Brightness', self.brightness, 0.0, 8 if vmax == 1 else vmax)[1]
         self.auto_bright = imgui.checkbox('Automatic brightness', self.auto_bright)[1]
 

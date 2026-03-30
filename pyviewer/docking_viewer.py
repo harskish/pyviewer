@@ -262,6 +262,9 @@ class DockingViewer:
             glfw.window_hint(glfw.RED_BITS, 16)
             glfw.window_hint(glfw.GREEN_BITS, 16)
             glfw.window_hint(glfw.BLUE_BITS, 16)
+            # KDE plasma: currently fails with floatbuffer
+            #if hdr_patch.is_linux:
+            #    glfw.window_hint(hdr_patch.GLFW_FLOATBUFFER, gl.GL_TRUE)
 
         addons = immapp.AddOnsParams(
             with_implot=with_implot,

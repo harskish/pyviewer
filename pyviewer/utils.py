@@ -130,16 +130,6 @@ class PannableArea():
         self.zoom = best / min(sw, sh)
         print('Scale set to:', f'1/{1/best:.0f}x' if best < 1 else f'{best:.0f}x')
     
-    def get_monitor(self):
-        """Figure out which monitor window is currently on"""
-        x, y = glfw.get_window_pos(self.window)
-        for mon in glfw.get_monitors():
-            x0, y0, w, h = glfw.get_monitor_workarea(mon)
-            x1, y1 = (x0 + w, y0 + h)
-            if (x0 <= x <= x1) and (y0 <= y <= y1):
-                return mon
-        return glfw.get_primary_monitor()
-    
     def get_hdpi_scale(self) -> tuple[float]:
         """
         Get HDPI framebuffer scale factor.
@@ -147,7 +137,7 @@ class PannableArea():
         For other platforms, the native scale is used.
         """
         if system() == 'Darwin':
-            monitor = self.get_monitor()
+            monitor = glfw_get_monitor(self.window)
             monitor_name = glfw.get_monitor_name(monitor).decode()
             if monitor_name == 'Built-in Retina Display':
                 return glfw.get_monitor_content_scale(monitor)
@@ -664,6 +654,16 @@ class PannableArea():
         dm = dt * ((self.zoom / new_zoom) - 1) # movement of cursor UV due to zoom
         self.pan = np.array(self.pan) + dm * np.array([1, -1]) # to y up
         self.zoom = new_zoom
+
+def glfw_get_monitor(window):
+    """Figure out which monitor window is currently on"""
+    x, y = glfw.get_window_pos(window)
+    for mon in glfw.get_monitors():
+        x0, y0, w, h = glfw.get_monitor_workarea(mon)
+        x1, y1 = (x0 + w, y0 + h)
+        if (x0 <= x <= x1) and (y0 <= y <= y1):
+            return mon
+    return glfw.get_primary_monitor()
 
 # Dataclass that enforces type annotation
 # Enables compare-by-value

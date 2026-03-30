@@ -39,6 +39,7 @@ setup(name='pyviewer',
         'glfw==2.8.0',
         'numpy',
         'pyopengl==3.1.7',
+        'python-wayland==1.0.0', # for wl transfer function / primary names
         #'pyplotgui',  # custom imgui+implot package
         'imgui-bundle==1.92.5', # imgui + implot + many others
         'setuptools<=72.1.0', # github.com/pytorch/pytorch/issues/136541
