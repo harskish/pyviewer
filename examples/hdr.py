@@ -1,6 +1,6 @@
 from pyviewer import hdr_patch; hdr_patch.use_patched()
 import glfw
-from pyviewer.docking_viewer import DockingViewer, dockable
+from pyviewer.docking_viewer_py import PyDockingViewer, dockable
 from imgui_bundle import imgui
 import numpy as np
 
@@ -19,7 +19,7 @@ grad_b = l2.reshape(-1, 1) * l1.reshape(1, -1)
 img = np.stack((grad_r, grad_b, grad_g), axis=-1) # [256, 256, 3]
 img = img[:H, :W, :]
 
-class HDRViewer(DockingViewer):
+class HDRViewer(PyDockingViewer):
     def setup_state(self):
         self.brightness = 2.0
         self.auto_bright = False

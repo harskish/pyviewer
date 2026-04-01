@@ -1,9 +1,10 @@
-from pyviewer.docking_viewer import DockingViewer, dockable
+from pyviewer import hdr_patch; hdr_patch.use_patched()
+from pyviewer.docking_viewer_py import PyDockingViewer, dockable
 from imgui_bundle import imgui
 import numpy as np
 
 if __name__ == '__main__':
-    class Test(DockingViewer):
+    class Test(PyDockingViewer):
         def setup_state(self):
             self.state.seed = 0
 
