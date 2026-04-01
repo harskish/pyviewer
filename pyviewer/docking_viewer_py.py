@@ -235,6 +235,10 @@ class PyDockingViewer:
         glfw.swap_interval(1)
         return window
 
+    def shutdown(self):
+        if self.window:
+            glfw.set_window_should_close(self.window, glfw.TRUE)
+    
     def _setup_imgui_context(self, name: str):
         io = imgui.get_io()
         io.config_flags |= imgui.ConfigFlags_.docking_enable
