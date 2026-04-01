@@ -130,9 +130,11 @@ class PyDockingViewer:
         self.impl: GlfwRenderer = None
         self._window_title = name
         self._orig_window_title = name
-        self._ini_path = name.lower().strip().replace(' ', '_') + '.ini'
-        self._prefs_path = name.lower().strip().replace(' ', '_') + '.prefs.json'
         self.load_font_awesome = with_font_awesome
+        
+        safe_name = name.lower().strip().replace(' ', '_')
+        self._ini_path = f'{safe_name}.ini'
+        self._prefs_path = Path(f'~/.config/{safe_name}.prefs.json').expanduser() # AppData on Windows?
 
         # For limiting OpenGL operations to UI thread
         self.ui_tid = threading.get_native_id()
@@ -169,7 +171,7 @@ class PyDockingViewer:
         self.pan_handler.clear_color = imgui.get_style().color_(imgui.Col_.window_bg)
 
         self.load_fonts()
-        self.impl = GlfwRenderer(self.window)
+        self.impl = GlfwRenderer(self.window, attach_callbacks=True)
 
         # Set own glfw callbacks, chained with previous callback if present.
         def noop(*args, **kwargs):
@@ -189,19 +191,58 @@ class PyDockingViewer:
 
         self._main_loop()
 
+    def impl_glfw_init(self):
+        width, height = 1920, 1080
+        window_name = self._window_title
+
+        try:
+            glfw.init_hint(glfw.PLATFORM, glfw.PLATFORM_WAYLAND)
+        except Exception as e:
+            pass
+
+        
+        # Wayland HDR: setup color management
+        if self.hdr and sys.platform == 'linux':
+            try:
+                glfw.init_hint(hdr_patch.GLFW_WAYLAND_COLOR_MANAGEMENT, glfw.TRUE)
+            except:
+                raise RuntimeError('GLFW init hint failed, make sure glfw is imported before pyviewer/imgui_bundle')
+
+        if not glfw.init():
+            print('Could not initialize OpenGL context')
+            sys.exit(1)
+
+        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+        glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+        glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, gl.GL_TRUE)
+
+        if self.hdr:
+            glfw.window_hint(glfw.RED_BITS, 16)
+            glfw.window_hint(glfw.GREEN_BITS, 16)
+            glfw.window_hint(glfw.BLUE_BITS, 16)
+            # KDE plasma: currently fails with floatbuffer
+            #if hdr_patch.is_linux:
+            #    glfw.window_hint(hdr_patch.GLFW_FLOATBUFFER, gl.GL_TRUE)
+
+        window = glfw.create_window(int(width), int(height), window_name, None, None)
+        if not window:
+            glfw.terminate()
+            print('Could not initialize Window')
+            sys.exit(1)
+
+        glfw.make_context_current(window)
+        glfw.swap_interval(1)
+        return window
+
     def _setup_imgui_context(self, name: str):
         io = imgui.get_io()
-
-        if hasattr(imgui, 'ConfigFlags_'):
-            flags = imgui.ConfigFlags_
-            if hasattr(flags, 'docking_enable'):
-                io.config_flags |= flags.docking_enable
-            if hasattr(flags, 'nav_enable_keyboard'):
-                io.config_flags |= flags.nav_enable_keyboard
+        io.config_flags |= imgui.ConfigFlags_.docking_enable
+        io.config_flags |= imgui.ConfigFlags_.nav_enable_keyboard
 
         # Python bindings may not expose io.ini_filename; load ini manually instead.
         try:
-            if Path(self._ini_path).is_file() and hasattr(imgui, 'load_ini_settings_from_disk'):
+            if Path(self._ini_path).is_file():
                 imgui.load_ini_settings_from_disk(self._ini_path)
         except Exception:
             print(f'Warning: failed to load imgui settings from "{self._ini_path}"')
@@ -412,11 +453,11 @@ class PyDockingViewer:
     def _load_builtin_settings(self):
         try:
             path = Path(self._prefs_path)
+            path.parent.mkdir(exist_ok=True)
             if not path.is_file():
                 return
             data = json.loads(path.read_text(encoding='utf-8'))
-            scale = float(data.get('ui_scale', self._ui_scale))
-            self.set_ui_scale(max(0.1, min(5.0, scale)))
+            self.ui_scale = float(data.get('ui_scale', self._ui_scale))
         except Exception:
             print(f'Warning: failed to load viewer settings from "{self._prefs_path}"')
 
@@ -431,8 +472,7 @@ class PyDockingViewer:
 
     def _cleanup(self):
         try:
-            if hasattr(imgui, 'save_ini_settings_to_disk'):
-                imgui.save_ini_settings_to_disk(self._ini_path)
+            imgui.save_ini_settings_to_disk(self._ini_path)
         except Exception:
             print(f'Warning: failed to save imgui settings to "{self._ini_path}"')
 
@@ -450,13 +490,6 @@ class PyDockingViewer:
                 pass
 
         glfw.terminate()
-
-    def setup_layout(self):
-        """
-        Kept for API compatibility with the old hello_imgui backend.
-        Python backend currently constructs the dockspace directly in _begin_dockspace().
-        """
-        return None
 
     def get_default_font_path(self):
         font = Path(__file__).parent / 'MPLUSRounded1c-Medium.ttf'
@@ -655,47 +688,3 @@ class PyDockingViewer:
 
     def drag_and_drop_callback(self, paths: list[Path]) -> bool:
         return False
-
-    def impl_glfw_init(self):
-        width, height = 1280, 720
-        window_name = self._window_title
-
-        try:
-            glfw.init_hint(glfw.PLATFORM, glfw.PLATFORM_WAYLAND)
-        except Exception as e:
-            pass
-
-        
-        # Wayland HDR: setup color management
-        if self.hdr and sys.platform == 'linux':
-            try:
-                glfw.init_hint(hdr_patch.GLFW_WAYLAND_COLOR_MANAGEMENT, glfw.TRUE)
-            except:
-                raise RuntimeError('GLFW init hint failed, make sure glfw is imported before pyviewer/imgui_bundle')
-
-        if not glfw.init():
-            print('Could not initialize OpenGL context')
-            sys.exit(1)
-
-        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
-        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
-        glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-        glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, gl.GL_TRUE)
-
-        if self.hdr:
-            glfw.window_hint(glfw.RED_BITS, 16)
-            glfw.window_hint(glfw.GREEN_BITS, 16)
-            glfw.window_hint(glfw.BLUE_BITS, 16)
-            # KDE plasma: currently fails with floatbuffer
-            #if hdr_patch.is_linux:
-            #    glfw.window_hint(hdr_patch.GLFW_FLOATBUFFER, gl.GL_TRUE)
-
-        window = glfw.create_window(int(width), int(height), window_name, None, None)
-        if not window:
-            glfw.terminate()
-            print('Could not initialize Window')
-            sys.exit(1)
-
-        glfw.make_context_current(window)
-        glfw.swap_interval(1)
-        return window
