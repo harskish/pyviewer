@@ -242,7 +242,7 @@ class PyDockingViewer:
     def _setup_imgui_context(self, name: str):
         io = imgui.get_io()
         io.config_flags |= imgui.ConfigFlags_.docking_enable
-        io.config_flags |= imgui.ConfigFlags_.nav_enable_keyboard
+        #io.config_flags |= imgui.ConfigFlags_.nav_enable_keyboard
 
         # Python bindings may not expose io.ini_filename; load ini manually instead.
         try:
@@ -294,6 +294,9 @@ class PyDockingViewer:
         s.scrollbar_size = font_size + 4
 
     def _draw_menu_wrapper(self):
+        if not (self.show_app_menu or self.show_view_menu):
+            return
+        
         if imgui.begin_main_menu_bar():
             if self.show_app_menu:
                 if imgui.begin_menu('App', True):
@@ -352,8 +355,7 @@ class PyDockingViewer:
 
     def _begin_dockspace(self):
         flags = (
-            imgui.WindowFlags_.menu_bar
-            | imgui.WindowFlags_.no_docking
+            imgui.WindowFlags_.no_docking
             | imgui.WindowFlags_.no_title_bar
             | imgui.WindowFlags_.no_collapse
             | imgui.WindowFlags_.no_resize
@@ -361,6 +363,9 @@ class PyDockingViewer:
             | imgui.WindowFlags_.no_bring_to_front_on_focus
             | imgui.WindowFlags_.no_nav_focus
         )
+
+        if self.show_app_menu or self.show_view_menu:
+            flags |= imgui.WindowFlags_.menu_bar
 
         viewport = imgui.get_main_viewport()
         imgui.set_next_window_pos(viewport.pos)
