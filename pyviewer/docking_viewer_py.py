@@ -436,6 +436,8 @@ class PyDockingViewer:
     def _main_loop(self):
         try:
             while not glfw.window_should_close(self.window):
+                # TODO: siv-style low-fps mode if mouse is not moved
+                
                 glfw.poll_events()
                 self.impl.process_inputs()
 
