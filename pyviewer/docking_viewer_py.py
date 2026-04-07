@@ -111,7 +111,6 @@ class PyDockingViewer:
         self.pan_handler = PannableArea(force_mouse_capture=True)
         self._ui_scale = 1.0
         self.ui_locked = True
-        self.first_frame = True
 
         # Main image (output of self.compute())
         self.image: np.ndarray = None
@@ -169,6 +168,11 @@ class PyDockingViewer:
         self.show_view_menu = True
         self._dock_windows_by_label: dict[str, _DockableWindowState] = {}
 
+        # For smooth idle-mode detection: track last UI activity (cursor/keyboard)
+        self.last_ui_active = time.monotonic()
+        self.idle_timeout_s = 8
+        self.idle_fps = 5
+
         # Create window + imgui backend
         self.window = self.impl_glfw_init()
         imgui.create_context()
@@ -189,6 +193,20 @@ class PyDockingViewer:
             self.window,
             partial(file_drop_callback_wrapper, callback=self.drag_and_drop_callback, prev=(prev or noop)),
         )
+
+        prev_kb_cbk = glfw.set_key_callback(self.window, None)
+        def keyboard_callback(*args, **kwargs):
+            self.last_ui_active = time.monotonic()
+            return prev_kb_cbk(*args, **kwargs)
+        glfw.set_key_callback(self.window, keyboard_callback)
+        
+        # Set cursor position callback to track mouse activity
+        prev_cursor_callback = glfw.set_cursor_pos_callback(self.window, None)
+        def cursor_pos_callback(*args, **kwargs):
+            self.last_ui_active = time.monotonic()
+            return prev_cursor_callback(*args, **kwargs)
+        glfw.set_cursor_pos_callback(self.window, cursor_pos_callback)
+        
         self.pan_handler.set_callbacks(self.window)
 
         self._load_builtin_settings()
@@ -436,7 +454,10 @@ class PyDockingViewer:
     def _main_loop(self):
         try:
             while not glfw.window_should_close(self.window):
-                # TODO: siv-style low-fps mode if mouse is not moved
+                # Idle-mode: reduce frame rate if mouse/keyboard is not used for a while
+                time_since_activity = time.monotonic() - self.last_ui_active
+                if time_since_activity > self.idle_timeout_s:
+                    time.sleep(1/self.idle_fps)
                 
                 glfw.poll_events()
                 self.impl.process_inputs()
@@ -452,7 +473,6 @@ class PyDockingViewer:
                 self._draw_status_bar_if_needed()
                 imgui.end()  # end dockspace host
 
-                self.first_frame = False
                 glfw.set_window_title(self.window, self._window_title)
                 imgui.pop_font()
 
@@ -819,7 +839,7 @@ class PyDockingViewer:
         io = imgui.get_io()
         if io.key_alt and imgui.is_key_pressed(imgui.Key.enter, repeat=False):
             self.toggle_fullscreen()
-        if imgui.is_key_pressed(imgui.Key.escape):
+        if imgui.is_key_pressed(imgui.Key.escape, repeat=False):
             glfw.set_window_should_close(self.window, True)
 
     def set_window_title(self, title, suffix=False):
