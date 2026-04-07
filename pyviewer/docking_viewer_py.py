@@ -131,6 +131,13 @@ class PyDockingViewer:
         self._window_title = name
         self._orig_window_title = name
         self.load_font_awesome = with_font_awesome
+
+        # Fullscreen state (toggle with Alt+Enter).
+        self._is_fullscreen = False
+        self._prefer_borderless_fullscreen = False # Wayland: cannot set pos, falls back to exclusive
+        self._windowed_pos: tuple[int, int] | None = (100, 100)
+        self._windowed_size = (1920, 1080)
+        self._windowed_maximized = False
         
         safe_name = name.lower().strip().replace(' ', '_')
         self._ini_path = f'{safe_name}.ini'
@@ -199,7 +206,6 @@ class PyDockingViewer:
             glfw.init_hint(glfw.PLATFORM, glfw.PLATFORM_WAYLAND)
         except Exception as e:
             pass
-
         
         # Wayland HDR: setup color management
         if self.hdr and sys.platform == 'linux':
@@ -242,7 +248,6 @@ class PyDockingViewer:
     def _setup_imgui_context(self, name: str):
         io = imgui.get_io()
         io.config_flags |= imgui.ConfigFlags_.docking_enable
-        #io.config_flags |= imgui.ConfigFlags_.nav_enable_keyboard
 
         # Python bindings may not expose io.ini_filename; load ini manually instead.
         try:
@@ -437,6 +442,7 @@ class PyDockingViewer:
                 imgui.new_frame()
                 imgui.push_font(self.default_font, self.initial_font_size * self.ui_scale)
 
+                self._handle_global_shortcuts()
                 self.pre_new_frame()
                 self._draw_menu_wrapper()
                 self._begin_dockspace()
@@ -641,6 +647,178 @@ class PyDockingViewer:
 
     def reset_window_title(self):
         self.set_window_title(self._orig_window_title, suffix=False)
+
+    def _get_window_pos_safe(self):
+        """Wayland may not support window positioning APIs."""
+        try:
+            return glfw.get_window_pos(self.window)
+        except Exception:
+            return None
+
+    def _set_window_pos_safe(self, x: int, y: int):
+        """Best-effort position set; returns False when unsupported (e.g. Wayland)."""
+        try:
+            glfw.set_window_pos(self.window, x, y)
+            return True
+        except Exception:
+            return False
+
+    def _get_active_monitor(self):
+        """Get the monitor that most overlaps with the current window."""
+
+        # On Wayland:
+        # - no concept of primary display (first listed assumed primary)
+        # - window position not available
+
+        # Pointers not stable, best way to identify monitors is by position
+        monitors = { glfw.get_monitor_pos(m): m for m in glfw.get_monitors() }
+        if not monitors:
+            return None
+
+        # Maximized windows: check for unique size match
+        if glfw.get_window_attrib(self.window, glfw.MAXIMIZED) == glfw.TRUE:
+            W, H = glfw.get_framebuffer_size(self.window) # get_window_size includes WM scaling
+            matches = [] # W or H
+            for monitor in monitors.values():
+                mode = glfw.get_video_mode(monitor)
+                if mode is None:
+                    continue
+                if mode.size.width == W or mode.size.height == H:
+                    matches.append(monitor)
+
+            if len(matches) == 1:
+                return matches[0]
+
+        # None check doesn't work, implicit conversion to bool does
+        current_monitor = glfw.get_window_monitor(self.window)
+        if current_monitor and glfw.get_monitor_pos(current_monitor) in monitors:
+            return current_monitor
+
+        wpos = self._get_window_pos_safe()
+        if wpos is None:
+            primary = glfw.get_primary_monitor()
+            if primary and glfw.get_monitor_pos(primary) in monitors:
+                return primary
+            return monitors[0]
+
+        wx, wy = wpos
+        ww, wh = glfw.get_window_size(self.window)
+        best = monitors[0]
+        best_overlap = -1
+
+        for monitor in monitors:
+            mx, my = glfw.get_monitor_pos(monitor)
+            mode = glfw.get_video_mode(monitor)
+            if mode is None:
+                continue
+            mw, mh = mode.size.width, mode.size.height
+
+            overlap_w = max(0, min(wx + ww, mx + mw) - max(wx, mx))
+            overlap_h = max(0, min(wy + wh, my + mh) - max(wy, my))
+            overlap = overlap_w * overlap_h
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best = monitor
+
+        return best
+
+    def _enter_fullscreen_borderless(self):
+        monitor = self._get_active_monitor()
+        if monitor is None:
+            return False
+
+        mode = glfw.get_video_mode(monitor)
+        if mode is None:
+            return False
+
+        mx, my = glfw.get_monitor_pos(monitor)
+        glfw.set_window_attrib(self.window, glfw.DECORATED, glfw.FALSE)
+        glfw.set_window_attrib(self.window, glfw.RESIZABLE, glfw.FALSE)
+
+        # Borderless fullscreen needs placement; if unsupported (Wayland),
+        # let caller fall back to monitor-attached exclusive fullscreen.
+        if not self._set_window_pos_safe(mx, my):
+            return False
+
+        glfw.set_window_size(self.window, mode.size.width, mode.size.height)
+        return True
+
+    def _enter_fullscreen_exclusive(self):
+        monitor = self._get_active_monitor()
+        if monitor is None:
+            return False
+
+        mode = glfw.get_video_mode(monitor)
+        if mode is None:
+            return False
+
+        glfw.set_window_monitor(
+            self.window,
+            monitor,
+            0,
+            0,
+            mode.size.width,
+            mode.size.height,
+            mode.refresh_rate,
+        )
+        return True
+
+    def enter_fullscreen(self):
+        if self._is_fullscreen:
+            return
+
+        self._windowed_pos = self._get_window_pos_safe()
+        self._windowed_size = glfw.get_window_size(self.window)
+        self._windowed_maximized = glfw.get_window_attrib(self.window, glfw.MAXIMIZED) == glfw.TRUE
+
+        ok = False
+        if self._prefer_borderless_fullscreen:
+            ok = self._enter_fullscreen_borderless()
+        if not ok:
+            ok = self._enter_fullscreen_exclusive()
+
+        if ok:
+            self._is_fullscreen = True
+
+    def exit_fullscreen(self):
+        if not self._is_fullscreen:
+            return
+
+        # Leave exclusive mode if active.
+        if glfw.get_window_monitor(self.window) is not None:
+            w, h = self._windowed_size
+            if self._windowed_pos is not None:
+                x, y = self._windowed_pos
+            else:
+                x, y = 0, 0
+            glfw.set_window_monitor(self.window, None, x, y, w, h, 0)
+
+        glfw.set_window_attrib(self.window, glfw.DECORATED, glfw.TRUE)
+        glfw.set_window_attrib(self.window, glfw.RESIZABLE, glfw.TRUE)
+
+        if self._windowed_maximized:
+            glfw.maximize_window(self.window)
+        else:
+            w, h = self._windowed_size
+            if self._windowed_pos is not None:
+                x, y = self._windowed_pos
+                self._set_window_pos_safe(x, y)
+            glfw.set_window_size(self.window, w, h)
+
+        self._is_fullscreen = False
+
+    def toggle_fullscreen(self):
+        if self._is_fullscreen:
+            self.exit_fullscreen()
+        else:
+            self.enter_fullscreen()
+
+    def _handle_global_shortcuts(self):
+        io = imgui.get_io()
+        if io.key_alt and imgui.is_key_pressed(imgui.Key.enter, repeat=False):
+            self.toggle_fullscreen()
+        if imgui.is_key_pressed(imgui.Key.escape):
+            glfw.set_window_should_close(self.window, True)
 
     def set_window_title(self, title, suffix=False):
         """
