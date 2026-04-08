@@ -16,7 +16,7 @@ from pathlib import Path
 # MacOS: replace dylib in site packages
 orig = Path(site.getsitepackages()[0]) / 'imgui_bundle' / 'libglfw.3.dylib'
 backup = orig.with_name('backup_libglfw.3.dylib')
-patched = Path(__file__).parent / 'libglfw.3.5.dylib'
+patched_mac = Path(__file__).parent / 'libglfw.3.5.dylib'
 is_macos = platform.system() == 'Darwin'
 
 # Wayland: just set env variable for glfw itself
@@ -38,26 +38,18 @@ if is_macos and not backup.is_file():
     assert orig.is_file(), 'Could not find imgui-bundle\'s original libglfw'
     shutil.copy2(orig, backup)
 
-def configure_pyglfw_library() -> None:
-    if not is_linux:
-        return
-
-    assert patched_linux.is_file(), 'Could not find patched libglfw.so.3.5'
-    os.environ['PYGLFW_LIBRARY'] = patched_linux.as_posix()
-    
-    # Load patched lib by importing glfw
-    wl_import_glfw()
-
 def use_patched():
     global CUR_MODE
     if is_macos and CUR_MODE != Mode.PATCHED:
         assert 'glfw' not in sys.modules, 'glfw already imported, cannot patch'
-        assert patched.is_file(), 'Could not find patched libglfw'
-        shutil.copy2(patched, orig)
+        assert 'imgui_bundle' not in sys.modules, 'imgui_bundle already imported, cannot patch'
+        assert patched_mac.is_file(), 'Could not find patched libglfw'
+        shutil.copy2(patched_mac, orig)
+        import_glfw()
         CUR_MODE = Mode.PATCHED
     elif is_linux and CUR_MODE != Mode.PATCHED:
         assert 'glfw' not in sys.modules, 'glfw already imported, cannot patch'
-        configure_pyglfw_library()
+        import_glfw()
         CUR_MODE = Mode.PATCHED
 
 def use_original():
@@ -118,11 +110,17 @@ def get_edr_range(glfw_window, gamma=1) -> tuple[float, float, float]:
 
 
 import ctypes
-def wl_import_glfw():
+def import_glfw():
+    patched = patched_linux if is_linux else orig if is_macos else None # macos: patched from imgui_bundle folder
+    assert patched.is_file(), 'Could not find patched libglfw'
+    os.environ['PYGLFW_LIBRARY'] = patched.as_posix()
+    
     import glfw
-    glfw._glfw._name == patched_linux.as_posix(), 'Did not load patched library'
+    glfw._glfw._name == patched.as_posix(), 'Did not load patched library'
 
-    import wayland # python-wayland
+    from .utils import stdio_filter # utils import glfw
+    with stdio_filter(err='WARNING: Wayland is not active'):
+        import wayland # python-wayland
     
     from ctypes import cast
     win = ctypes.c_void_p

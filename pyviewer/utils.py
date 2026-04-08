@@ -17,8 +17,9 @@ from ctypes import c_float
 from textwrap import dedent
 from functools import wraps
 from platform import system
+from contextlib import contextmanager
 
-
+from py.io import StdCaptureFD # type: ignore
 import OpenGL.GL as gl
 import ctypes
 
@@ -1013,6 +1014,18 @@ def lazy_print(s: str):
     if s != getattr(lazy_print, "prev", None):
         print(s)
         setattr(lazy_print, "prev", s)
+
+@contextmanager
+def stdio_filter(err: str = '', out: str = ''):
+    capture = StdCaptureFD(out=(out != ''), err=(err != ''))
+    yield
+    stdout, stderr = capture.reset()
+    
+    if stdout and out not in stdout:
+        print(stdout)
+    
+    if stderr and err not in stderr:
+        print(stderr)
 
 def resolve_lnk(p: Path):
     """

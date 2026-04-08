@@ -1,3 +1,4 @@
+import os
 import sys
 import json
 from pathlib import Path
@@ -220,10 +221,11 @@ class PyDockingViewer:
         width, height = 1920, 1080
         window_name = self._window_title
 
-        try:
-            glfw.init_hint(glfw.PLATFORM, glfw.PLATFORM_WAYLAND)
-        except Exception as e:
-            pass
+        if os.environ.get('WAYLAND_DISPLAY'):
+            try:
+                glfw.init_hint(glfw.PLATFORM, glfw.PLATFORM_WAYLAND)
+            except Exception:
+                pass
         
         # Wayland HDR: setup color management
         if self.hdr and sys.platform == 'linux':
