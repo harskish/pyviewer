@@ -712,6 +712,12 @@ def imgui_item_width(size):
     yield
     imgui.pop_item_width()
 
+@contextlib.contextmanager
+def imgui_font_size(size):
+    imgui.push_font(None, size)
+    yield
+    imgui.pop_font()
+
 # Full screen imgui window
 def begin_inline(name, inputs=True):
     flags = 0
