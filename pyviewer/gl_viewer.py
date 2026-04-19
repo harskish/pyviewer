@@ -104,11 +104,40 @@ class _texture:
         self.mapper = None  # torch extension cudaGraphicsResource_t
         self.is_fp = True
         self.shape = [0,0]
+        if not self.tex or not gl.glIsTexture(self.tex):
+            raise RuntimeError(f"Failed to create texture: {self.tex}")
+        if (err := gl.glGetError()) != gl.GL_NO_ERROR:
+            raise RuntimeError(f"OpenGL error after texture creation: 0x{err:x}")
+
+        self._released = False
+
+    def release(self):
+        if self._released:
+            return
+
+        if self.mapper is not None:
+            try:
+                self.mapper.unregister()
+            except Exception:
+                pass
+            finally:
+                self.mapper = None
+
+        tex = getattr(self, 'tex_2d', 0)
+        if tex:
+            try:
+                gl.glDeleteTextures(1, [tex])
+            except Exception:
+                pass
+
+        self.tex_2d = 0
+        self.tex = 0
+        self._released = True
 
     # be sure to del textures if you create a forget them often (python doesn't necessarily call del on garbage collect)
     def __del__(self):
         try:
-            gl.glDeleteTextures(1, [self.tex])
+            self.release()
         except:
             pass
 
@@ -591,7 +620,8 @@ class viewer:
         or manually if start() was never called (batch mode)
         """
         glfw.make_context_current(self._window)
-        del self._images
+        for tex in self._images.values():
+            tex.release()
         self._images: Dict[str, _texture] = {}
         glfw.make_context_current(None)
         glfw.destroy_window(self._window)

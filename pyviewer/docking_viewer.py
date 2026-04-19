@@ -183,7 +183,8 @@ class DockingViewer:
             save_settings_cbk()
             self.stop_event.set()
             for handle in self.texture_pool.values():
-                del handle
+                handle.release()
+            self.texture_pool.clear()
         
         def add_backend_cbk(*args, **kwargs):
             # Set own glfw callbacks, will be chained by imgui
@@ -568,7 +569,8 @@ class DockingViewer:
         
         self.texture_pool.move_to_end(key)
         if len(self.texture_pool) > capacity:
-            self.texture_pool.popitem(last=False)
+            _, old_handle = self.texture_pool.popitem(last=False)
+            old_handle.release() # don't rely on destructor (unpredictable timing)
         
         return self.texture_pool[key]
     

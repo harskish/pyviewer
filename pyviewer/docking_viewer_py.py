@@ -516,7 +516,7 @@ class PyDockingViewer:
             print(f'Warning: failed to save imgui settings to "{self._ini_path}"')
 
         for handle in self.texture_pool.values():
-            del handle
+            handle.release()
         self.texture_pool.clear()
 
         if self.impl is not None:
@@ -616,7 +616,8 @@ class PyDockingViewer:
 
         self.texture_pool.move_to_end(key)
         if len(self.texture_pool) > capacity:
-            self.texture_pool.popitem(last=False)
+            _, old_handle = self.texture_pool.popitem(last=False)
+            old_handle.release() # don't rely on destructor (unpredictable timing)
 
         return self.texture_pool[key]
 
