@@ -174,6 +174,9 @@ class PyDockingViewer:
         self.idle_timeout_s = 8
         self.idle_fps = 5
 
+        # Load persisted window size before creating the window.
+        self._load_window_size()
+
         # Create window + imgui backend
         self.window = self.impl_glfw_init()
         imgui.create_context()
@@ -218,7 +221,7 @@ class PyDockingViewer:
         self._main_loop()
 
     def impl_glfw_init(self):
-        width, height = 1920, 1080
+        width, height = self._windowed_size
         window_name = self._window_title
 
         if os.environ.get('WAYLAND_DISPLAY'):
@@ -489,21 +492,33 @@ class PyDockingViewer:
             self._save_builtin_settings()
             self._cleanup()
 
-    def _load_builtin_settings(self):
+    def _saved_preferences(self) -> dict:
         try:
             path = Path(self._prefs_path)
             path.parent.mkdir(exist_ok=True)
             if not path.is_file():
-                return
-            data = json.loads(path.read_text(encoding='utf-8'))
-            self.ui_scale = float(data.get('ui_scale', self._ui_scale))
+                return {}
+            return json.loads(path.read_text(encoding='utf-8'))
         except Exception:
             print(f'Warning: failed to load viewer settings from "{self._prefs_path}"')
+            return {}
+
+    def _load_window_size(self):
+        data = self._saved_preferences()
+        width = int(data.get('width', self._windowed_size[0]))
+        height = int(data.get('height', self._windowed_size[1]))
+        self._windowed_size = (width, height)
+
+    def _load_builtin_settings(self):
+        data = self._saved_preferences()
+        self.ui_scale = float(data.get('ui_scale', self._ui_scale))
 
     def _save_builtin_settings(self):
         try:
             data = {
                 'ui_scale': float(self.ui_scale),
+                'width': glfw.get_window_size(self.window)[0],
+                'height': glfw.get_window_size(self.window)[1],
             }
             Path(self._prefs_path).write_text(json.dumps(data, indent=2), encoding='utf-8')
         except Exception:
@@ -665,6 +680,8 @@ class PyDockingViewer:
         while not self.stop_event.is_set():
             ret = self.compute()
             if ret is not None:
+                assert ret.ndim == 3, "Expected HWC tensor"
+                assert ret.shape[2] < min(ret.shape[0], ret.shape[1]), "Expected HWC tensor"
                 self.update_image(img_hwc=ret)
             time.sleep(0.01)
 
