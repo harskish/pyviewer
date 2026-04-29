@@ -457,6 +457,7 @@ class PyDockingViewer:
         imgui.end()
 
     def _main_loop(self):
+        warmup = 3
         try:
             while not glfw.window_should_close(self.window):
                 # Idle-mode: reduce frame rate if mouse/keyboard is not used for a while
@@ -485,6 +486,12 @@ class PyDockingViewer:
                 gl.glClear(gl.GL_COLOR_BUFFER_BIT)
                 imgui.render()
                 self.impl.render(imgui.get_draw_data())
+                
+                # Prevent red flash when framebuffer changes from SDR to HDR (KDE)
+                if warmup > 0:
+                    warmup -= 1
+                    continue
+
                 glfw.swap_buffers(self.window)
         finally:
             self.stop_event.set()
