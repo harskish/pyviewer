@@ -6,7 +6,7 @@ assert getattr(gl_platform.PLATFORM, 'GL') is not None, 'Could not get raw GL pl
 def is_egl():
     return 'EGLPlatform' in str(type(getattr(gl_platform, 'PLATFORM', None))) # as opposed to GLX (x11) or WGL (Windows)
 
-_patched = not is_egl
+_patched = not is_egl()
 def patch():
     global _patched
     if _patched:

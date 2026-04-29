@@ -10,8 +10,7 @@ from collections import OrderedDict
 from functools import lru_cache, partial
 
 from . import hdr_patch
-from .egl_patch import patch
-patch()
+from . import egl_patch
 
 # Some callbacks broken if imported before imgui_bundle...??
 if sys.platform == 'Darwin':
@@ -186,6 +185,7 @@ class PyDockingViewer:
         self.pan_handler.clear_color = imgui.get_style().color_(imgui.Col_.window_bg)
 
         self.load_fonts()
+        egl_patch.patch()
         self.impl = GlfwRenderer(self.window, attach_callbacks=True)
 
         # Set own glfw callbacks, chained with previous callback if present.

@@ -16,7 +16,7 @@ import time
 from contextlib import contextmanager, nullcontext
 from platform import uname
 
-from . import egl_patch; egl_patch.patch()
+from . import egl_patch
 import OpenGL.GL as gl
 
 # Some callbacks broken if imported before imgui_bundle...??
@@ -90,7 +90,7 @@ class _texture:
     '''
     This class maps torch tensors to gl textures without a CPU roundtrip.
     '''
-    def __init__(self, min_filter=gl.GL_LINEAR, mag_filter=gl.GL_LINEAR):
+    def __init__(self, min_filter=gl.GL_LINEAR, mag_filter=gl.GL_LINEAR):        
         # Can be shared between py and c++
         self.tex_2d = gl.glGenTextures(1)
         self.tex = self.tex_2d # currently active
@@ -363,6 +363,8 @@ class viewer:
 
         fname = inifile or "".join(c for c in title.lower() if c.isalnum())
         self._inifile = Path(fname).with_suffix('.ini')
+
+        egl_patch.patch()
 
         # Choose appropriate session type
         sess = os.environ.get('XDG_SESSION_TYPE', '')
