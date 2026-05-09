@@ -210,6 +210,12 @@ class PyDockingViewer:
             self.last_ui_active = time.monotonic()
             return prev_cursor_callback(*args, **kwargs)
         glfw.set_cursor_pos_callback(self.window, cursor_pos_callback)
+
+        prev_clk_cbk = glfw.set_mouse_button_callback(self.window, None)
+        def click_callback(*args, **kwargs):
+            self.last_ui_active = time.monotonic()
+            return prev_clk_cbk(*args, **kwargs)
+        glfw.set_mouse_button_callback(self.window, click_callback)
         
         self.pan_handler.set_callbacks(self.window)
 
