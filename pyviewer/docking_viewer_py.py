@@ -140,7 +140,7 @@ class PyDockingViewer:
         
         safe_name = name.lower().strip().replace(' ', '_')
         self._ini_path = f'{safe_name}.ini'
-        self._prefs_path = Path(f'~/.config/{safe_name}.prefs.json').expanduser() # AppData on Windows?
+        self._prefs_path = Path(f'~/.cache/pyviewer/{safe_name}.prefs.json').expanduser() # AppData on Windows?
 
         # For limiting OpenGL operations to UI thread
         self.ui_tid = threading.get_native_id()
