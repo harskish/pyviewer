@@ -1064,6 +1064,19 @@ def resolve_lnk(p: Path):
     
     return root
 
+def is_xrdp():
+    if not is_x11():
+        return False
+    disp = os.environ.get('DISPLAY', '')
+    if disp.startswith(':10') or disp.startswith(':11'):
+        return True
+    if any(e.startswith('XRDP') for e in os.environ):
+        return True
+    return False
+
+def is_x11():
+    return os.environ.get('XDG_SESSION_TYPE') == 'x11'
+
 import inspect
 def __LINE__():
     return str(inspect.currentframe().f_back.f_lineno)

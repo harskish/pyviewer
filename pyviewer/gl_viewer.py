@@ -15,6 +15,7 @@ import ctypes
 import time
 from contextlib import contextmanager, nullcontext
 from platform import uname
+from .utils import is_xrdp
 
 from . import egl_patch
 import OpenGL.GL as gl
@@ -48,6 +49,9 @@ def cuda_synchronize():
 
 @lru_cache
 def get_cuda_plugin():
+    if is_xrdp():
+        print('CUDA PT plugin: not supported over xrdp')
+        return None
     try:
         print('Setting up CUDA PT plugin')
         from . import custom_ops
