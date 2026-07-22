@@ -42,7 +42,7 @@ setup(name='pyviewer',
         'python-wayland==1.0.0', # for wl transfer function / primary names
         #'pyplotgui',  # custom imgui+implot package
         'imgui-bundle==1.92.5', # imgui + implot + many others
-        'setuptools<=72.1.0', # github.com/pytorch/pytorch/issues/136541
+        'setuptools>=77.0.3', # github.com/pytorch/pytorch/issues/136541
         'light-process==0.0.7',
         'py==1.11.0', # for capturing c++ extension stdout/stderr, part of pytest
         'ninja', # for custom OP
