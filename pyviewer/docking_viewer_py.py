@@ -85,6 +85,7 @@ class PyDockingViewer:
         self,
         name: str,
         normalize=False,
+        hdr=None, # None: automatic
         with_implot=True,
         with_implot3d=False,
         with_node_editor=False,
@@ -146,7 +147,7 @@ class PyDockingViewer:
         self.ui_tid = threading.get_native_id()
 
         # Check if HDR mode has been turned on
-        self.hdr = (hdr_patch.CUR_MODE == hdr_patch.Mode.PATCHED)
+        self.hdr = (hdr_patch.CUR_MODE == hdr_patch.Mode.PATCHED) if hdr is None else hdr
 
         # Normalize images before showing?
         self.normalize = normalize if not self.hdr else False
