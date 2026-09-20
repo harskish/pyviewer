@@ -41,7 +41,7 @@ class VizMode(Enum):
     PLOT_DOT = 3
 
 class SingleImageViewer:
-    def __init__(self, title, key=None, hdr=False, normalize=True, vsync=True, hidden=False, pannable=True, paused=False):
+    def __init__(self, title, key=None, hdr=False, normalize=True, vsync=True, hidden=False, pannable=True, paused=False, next=False):
         self.title = title
         self.key = key or ''.join(random.choices(string.ascii_letters, k=100))
         self.ui_process = None
@@ -58,7 +58,7 @@ class SingleImageViewer:
         # Shared resources for inter-process communication
         # One shared 8k rgb buffer allocated (max size), subset written to
         # Size does not affect performance, only memory usage
-        self.max_size_img = (2*3840, 2*2160, 3)
+        self.max_size_img = (4*3840, 4*2160, 3)
         ctype = ctypes.c_uint8 if self.dtype == 'uint8' else ctypes.c_float
         self.shared_buffer_img = mp.Array(ctype, np.prod(self.max_size_img).item())
 
@@ -92,7 +92,7 @@ class SingleImageViewer:
         self.paused = mp.Value(ctypes.c_bool, paused, lock=False)
 
         # N key: accept next image, then pause
-        self.next = mp.Value(ctypes.c_bool, False, lock=False)
+        self.next = mp.Value(ctypes.c_bool, next, lock=False)
         
         # For waiting until process has started
         self.started = mp.Value(ctypes.c_bool, False, lock=False)
@@ -395,10 +395,10 @@ def init(*args, sync=True, **kwargs):
             inst.wait_for_startup() # if calling from debugger: need to give process time to start
 
 # No-op if already open, therwise (re)start
-def show_window(paused=False):
+def show_window(paused=False, next=False):
     # Elif to avoid immediate restart if first init
     if inst is None:
-        init('SIV', paused=paused)
+        init('SIV', paused=paused, next=next)
     elif not inst.started.value:
         inst.restart()
         inst.paused.value = False
