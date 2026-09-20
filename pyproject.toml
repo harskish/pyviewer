@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyviewer"
+dynamic = ["version"]
+description = "Interactive Python viewers"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "CC-BY-NC-SA-4.0"
+authors = [
+  { name = "Erik Härkönen", email = "erik.harkonen@hotmail.com" },
+]
+dependencies = [
+  "glfw>=2.8,<3",
+  "numpy",
+  "pyopengl>=3.1.7,<4",
+  "python-wayland>=1,<2; sys_platform == 'linux'",
+  "imgui-bundle>=1.92.5,<1.93",
+  "setuptools>=77",
+  "light-process>=0.0.7,<0.1",
+  "py>=1.11,<2",
+]
+
+[project.optional-dependencies]
+# torch.utils.cpp_extension invokes Ninja at runtime when building the optional
+# CUDA, OpenGL, or Metal interop extension.
+custom-ops = ["ninja"]
+
+[project.urls]
+Homepage = "https://github.com/harskish/pyviewer"
+Source = "https://github.com/harskish/pyviewer"
+
+[tool.setuptools]
+packages = ["pyviewer", "pyviewer.custom_ops"]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = { attr = "pyviewer._version.__version__" }
+
+[tool.setuptools.package-data]
+pyviewer = [
+  "*.ttf",
+  "custom_ops/*.cpp",
+  "custom_ops/*.mm",
+  "custom_ops/*.metal",
+]

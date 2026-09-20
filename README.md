@@ -27,8 +27,41 @@ A viewer that shows ImGui UI elemets on the left, and a large image on the right
 * Pan and zoom of the main image
 
 ## Installation
-Install with `pip install pyviewer`. <br>
-Pre-built wheels available for **CPython 3.11+**
+Install with `pip install pyviewer`. To use the optional Torch custom interop
+operations, install `pip install 'pyviewer[custom-ops]'` so that the Ninja build
+tool is available. <br>
+Requires **Python 3.11+**.
+
+### Nix
+
+The development shell provides pyviewer and its Python dependencies as
+Nix-managed packages:
+
+```sh
+nix develop
+```
+
+Python 3.12 is the default. Use `nix develop .#python311`, `.#python313`, or
+`.#python314` to select another supported interpreter.
+
+Build the package with `nix build`. The legacy `nix-shell` and
+`nix-build default.nix -A pyviewer` entry points are also available.
+Versioned flake packages such as `nix build .#pyviewer313` are provided for
+Python 3.11 through 3.14. With the legacy shell, select a version with
+`nix-shell --argstr pythonVersion 3.13`.
+
+The package set can also be imported by another Nix expression:
+
+```nix
+pyviewerPackages = import /path/to/pyviewer {
+  inherit pkgs;
+  pythonPackages = pkgs.python312Packages;
+};
+```
+
+Use `pyviewerPackages.pyviewer` in `python.withPackages`. The Nix package set
+uses pinned upstream `imgui-bundle` wheels, currently available for CPython
+3.11 through 3.14 on x86_64 Linux and x86_64/aarch64 macOS 14 or newer.
 
 ## Usage
 See `examples/demo.py` for a usage example.
