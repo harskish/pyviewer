@@ -16,7 +16,7 @@ dependencies = [
   "glfw>=2.8,<3",
   "numpy",
   "pyopengl>=3.1.7,<4",
-  "python-wayland>=1,<2; sys_platform == 'linux'",
+  "python-wayland>=1,<2",
   "imgui-bundle>=1.92.5,<1.93",
   "setuptools>=77",
   "light-process>=0.0.7,<0.1",
