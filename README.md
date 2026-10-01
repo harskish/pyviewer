@@ -20,6 +20,44 @@ siv.plot(np.sin(2*np.pi*np.linspace(0, 1, 10_000)))
 ### toolbar_viewer.py
 A viewer that shows ImGui UI elemets on the left, and a large image on the right. Runs in the main process, but supports visualizing torch tensors directly from GPU memory (unlike single_image_viewer).
 
+### tensor_viewer.py
+
+A viewer for large, multidimensional PyTorch tensors. Runs in a separate thread
+in the same process with `pydev_do_not_trace = True`, keeping its UI interactive
+at PyDev/debugpy breakpoints. Dimension radio buttons choose X, Y and an optional
+channel axis; sliders select the remaining slice indices and R/G/B channels.
+Unlock the top-right L/U button to reveal the UI scale slider (0.1 to 4.0);
+right-click the slider to reset to 1.0.
+Drag to pan, scroll to zoom, double-click to reset, or right-click to snap scale.
+
+```python
+from pyviewer import tensor_viewer as tv
+
+# NCHW: show batch index 0 and choose the displayed RGB channels.
+tv.draw(tensor, x_dim=3, y_dim=2, channel_dim=1, channels=(0, 1, 2))
+# Or select a grayscale plane, defaulting to the final two dimensions as Y/X.
+tv.draw(other_tensor)
+tv.inst.wait_for_close()  # optional: keep the script alive until the window closes
+```
+
+The viewer retains a detached reference to the tensor, including its original
+device and strides. Cropping, integer-stride slicing and transposing create views;
+only the visible samples are packed and copied to CPU for texture upload. Each
+texture dimension is bounded by the framebuffer size and `GL_MAX_TEXTURE_SIZE`.
+Zoomed-out sampling approximates nearest sampling on a regular integer lattice;
+zoomed-in sampling uses every visible source pixel. Normalization uses visible
+samples only, so the intensity range can change while panning. Disable it with
+`tv.init(normalize=False)` for float values in [0, 1] or uint8 in [0, 255].
+
+Selections persist across calls with the same shape when selection arguments are
+omitted. In-place updates appear on subsequent frames; coordinate concurrent
+writes if a consistent frame is needed. For CUDA, finish producing the tensor
+before publishing it (for example with `torch.cuda.synchronize()`), as the viewer
+uses its own thread and stream. The UI thread is a daemon, so the script must
+remain running to keep the window open. Use one active threaded viewer at a time;
+GLFW/ImGui have process-global state. Background GLFW window handling works on
+Linux/Windows; macOS requires it on the main thread.
+
 ## Other features
 * Makes use of [imgui-bundle](https://github.com/pthom/imgui_bundle) to provide plotting support and other extras
 * Dynamically rescalable user interface

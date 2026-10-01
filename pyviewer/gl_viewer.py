@@ -355,7 +355,7 @@ class _editable:
 
 
 class viewer:
-    def __init__(self, title, inifile=None, swap_interval=0, hidden=False):
+    def __init__(self, title, inifile=None, swap_interval=0, hidden=False, context_creation_api=glfw.NATIVE_CONTEXT_API):
         self.quit = False
 
         self._images = {}
@@ -408,6 +408,7 @@ class viewer:
 
         glfw.window_hint(glfw.MAXIMIZED, start_maximized)
         glfw.window_hint(glfw.VISIBLE, not hidden)
+        glfw.window_hint(glfw.CONTEXT_CREATION_API, context_creation_api)
         
         # MacOS, WSL require forward-compatible core profile
         is_wsl = 'microsoft-standard' in uname().release
@@ -705,10 +706,19 @@ class viewer:
 
                 imgui.render()
                 
+                # Clear the whole window, including areas outside ImGui clips.
+                gl.glDisable(gl.GL_SCISSOR_TEST)
+                gl.glColorMask(True, True, True, True)
                 gl.glClearColor(0, 0, 0, 1)
                 gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
-                self.renderer.render(imgui.get_draw_data())
+                # UI transparency blends into the window's RGB background;
+                # keep destination alpha opaque for desktop compositors.
+                gl.glColorMask(True, True, True, False)
+                try:
+                    self.renderer.render(imgui.get_draw_data())
+                finally:
+                    gl.glColorMask(True, True, True, True)
                 
                 # TODO: compute thread has to wait until sync is done
                 # and lock is released if calling upload_image()?
