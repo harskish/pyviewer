@@ -6,6 +6,7 @@ let
     pythonPackages.matplotlib
     pythonPackages.pillow
   ]);
+  pythonVersion = pkgs.lib.versions.majorMinor pythonPackages.python.version;
 in
 pkgs.mkShell {
   packages = [
@@ -38,7 +39,16 @@ pkgs.mkShell {
     libGL
     libxkbcommon
     cudatoolkit
-    libz
+    zlib
     glib
   ]);
+
+  shellHook = ''
+    if [ -f pyproject.toml ] && [ -f nix/dev-shell.nix ]; then
+      mkdir -p .nix-python/bin
+      ln -sfn "${python}/bin/python" ".nix-python/bin/python${pythonVersion}"
+      ln -sfn "python${pythonVersion}" .nix-python/bin/python3
+      ln -sfn "python${pythonVersion}" .nix-python/bin/python
+    fi
+  '';
 }

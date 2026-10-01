@@ -13,6 +13,14 @@
             "justMyCode": false
         },
         {
+            "name": "Tensor Viewer",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/tensor_viewer.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
             "name": "Scaling test",
             "type": "debugpy",
             "request": "launch",

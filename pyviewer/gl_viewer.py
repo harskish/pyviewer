@@ -11,7 +11,6 @@ from typing import Dict
 import sys
 import os
 from sys import platform
-import ctypes
 import time
 from contextlib import contextmanager, nullcontext
 from platform import uname
@@ -55,7 +54,7 @@ def get_cuda_plugin():
     try:
         print('Setting up CUDA PT plugin')
         from . import custom_ops
-        pt_plugin = custom_ops.get_plugin('cuda_gl_interop', 'cuda_gl_interop.cpp', Path(__file__).parent / './custom_ops', unsafe_load_prebuilt=True)
+        pt_plugin = custom_ops.get_plugin('cuda_gl_interop', 'cuda_gl_interop.cpp', Path(__file__).parent / './custom_ops')
         return pt_plugin
     except Exception as e:
         print('Failed to build CUDA-GL plugin:', e)
@@ -86,8 +85,24 @@ class PTExtMapper:
     def unregister(self) -> None:
         get_cuda_plugin().unregister(self.resource)
 
-    def upload(self, ptr: int, W: int, H: int, N: int) -> None:
-        get_cuda_plugin().upload(ptr, W, H, N, self.resource) # map, copy, unmap
+    def upload(self, ptr: int, W: int, H: int, N: int, stream=None, timer=None) -> None:
+        stream_ptr = 0 if stream is None else stream.cuda_stream
+        plugin = get_cuda_plugin()
+        if timer is None:
+            plugin.upload(ptr, W, H, N, self.resource, stream_ptr)
+            return
+        start = time.perf_counter()
+        plugin.map_resource(self.resource, stream_ptr)
+        timer.add_cpu('Map', (time.perf_counter() - start) * 1000)
+        timer.mark('Map')
+        start = time.perf_counter()
+        plugin.copy_to_resource(ptr, W, H, N, self.resource, stream_ptr)
+        timer.add_cpu('Copy', (time.perf_counter() - start) * 1000)
+        timer.mark('Copy')
+        start = time.perf_counter()
+        plugin.unmap_resource(self.resource, stream_ptr)
+        timer.add_cpu('Unmap', (time.perf_counter() - start) * 1000)
+        timer.mark('Unmap')
 
 MIPMAP_MODES = [gl.GL_NEAREST_MIPMAP_NEAREST, gl.GL_LINEAR_MIPMAP_NEAREST, gl.GL_NEAREST_MIPMAP_LINEAR, gl.GL_LINEAR_MIPMAP_LINEAR]
 class _texture:
@@ -240,18 +255,24 @@ class _texture:
             self.set_interp(gl.GL_TEXTURE_MIN_FILTER, self.min_filter)
             self.set_interp(gl.GL_TEXTURE_MAG_FILTER, self.mag_filter)
     
-    def upload_torch(self, img):
+    def upload_torch(self, img, stream=None, timer=None, capacity=None):
         import torch
         assert img.ndim == 3, "Please provide a HWC tensor"
-        assert img.shape[2] < min(img.shape[0], img.shape[1]), "Please provide a HWC tensor"
+        assert img.shape[2] in {1, 3, 4}, "Please provide a HWC tensor"
         if img.device.type == 'mps':
             return self.upload_mps(img)
         
         if get_cuda_plugin() is None:
-            return self.upload_np(img.detach().cpu().numpy())
+            start = time.perf_counter()
+            self.upload_np(img.detach().cpu().numpy())
+            if timer is not None:
+                timer.add_cpu('Fallback', (time.perf_counter() - start) * 1000)
+                timer.mark('Fallback')
+            return
         
         assert img.dtype in [torch.float32, torch.uint8], 'CUDA interop: only fp32 and u8 supported'
         
+        start = time.perf_counter()
         # OpenGL stores RGBA-strided data always
         # Must add alpha for gpu memcopy to work
         if img.shape[2] == 3:
@@ -260,19 +281,36 @@ class _texture:
 
         self.type = gl.GL_TEXTURE_2D
         img = img.contiguous()
-        self.upload_ptr(img.data_ptr(), img.shape, img.dtype.is_floating_point)
+        if timer is not None:
+            timer.add_cpu('Alpha', (time.perf_counter() - start) * 1000)
+            timer.mark('Alpha')
+        self.upload_ptr(img.data_ptr(), img.shape, img.dtype.is_floating_point,
+                        stream=stream, timer=timer, capacity=capacity)
         if self.needs_mipmap:
+            start = time.perf_counter()
             self.generate_mipmaps()
+            if timer is not None:
+                timer.add_cpu('Mipmap', (time.perf_counter() - start) * 1000)
+                timer.mark('Mipmap')
 
     # Copy from cuda pointer
-    def upload_ptr(self, ptr, shape, is_fp32):
+    def upload_ptr(self, ptr, shape, is_fp32, stream=None, timer=None, capacity=None):
         assert get_cuda_plugin() is not None, 'PT plugin needed for pointer upload'
         has_alpha = shape[-1] == 4
+        if capacity is None:
+            alloc_h, alloc_w = shape[:2]
+            size_changed = (alloc_h, alloc_w) != tuple(self.shape[:2])
+        else:
+            assert shape[0] <= capacity[0] and shape[1] <= capacity[1]
+            alloc_h = max(self.shape[0], capacity[0])
+            alloc_w = max(self.shape[1], capacity[1])
+            size_changed = (alloc_h, alloc_w) != tuple(self.shape[:2])
 
+        start = time.perf_counter()
         # Reallocate if shape changed or data type changed from np to torch
         # Must also reallocate before mipmap (re)generation (https://stackoverflow.com/a/20359917)
-        if self.needs_mipmap or shape[0] != self.shape[0] or shape[1] != self.shape[1] or self.is_fp != is_fp32 or self.mapper is None:
-            self.shape = shape
+        if self.needs_mipmap or size_changed or self.is_fp != is_fp32 or self.mapper is None:
+            self.shape = (alloc_h, alloc_w, shape[2])
             self.is_fp = is_fp32
             if self.mapper is not None:
                 self.mapper.unregister()
@@ -299,9 +337,12 @@ class _texture:
             incoming_fmt = gl.GL_RGBA if has_alpha else gl.GL_RGB
             incoming_dtype = gl.GL_FLOAT if is_fp32 else gl.GL_UNSIGNED_BYTE # fp32 or u8
 
-            gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, internal_fmt, shape[1], shape[0], 0, incoming_fmt, incoming_dtype, None)
+            gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, internal_fmt, alloc_w, alloc_h, 0, incoming_fmt, incoming_dtype, None)
             gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
             self.mapper = PTExtMapper(int(self.tex))
+        if timer is not None:
+            timer.add_cpu('Texture', (time.perf_counter() - start) * 1000)
+            timer.mark('Texture')
         
         # Cast to python integer type
         ptr_int = int(ptr)
@@ -311,8 +352,9 @@ class _texture:
         H, W, C = shape
         assert C == 4, 'Input data must be RGBA' # OpenGL always stores alpha channel
 
-        self.mapper.upload(ptr_int, W, H, C*N)
-        cuda_synchronize()
+        self.mapper.upload(ptr_int, W, H, C*N, stream=stream, timer=timer)
+        if stream is None:
+            cuda_synchronize()
 
 class _editable:
     def __init__(self, name, ui_code = '', run_code = ''):
@@ -355,7 +397,7 @@ class _editable:
 
 
 class viewer:
-    def __init__(self, title, inifile=None, swap_interval=0, hidden=False):
+    def __init__(self, title, inifile=None, swap_interval=0, hidden=False, context_creation_api=glfw.NATIVE_CONTEXT_API):
         self.quit = False
 
         self._images = {}
@@ -369,17 +411,6 @@ class viewer:
         self._inifile = Path(fname).with_suffix('.ini')
 
         egl_patch.patch()
-
-        # Choose appropriate session type
-        sess = os.environ.get('XDG_SESSION_TYPE', '')
-        try:
-            if sess == 'wayland':
-                glfw.init_hint(glfw.PLATFORM, glfw.PLATFORM_X11) # imgui_bundle only supports x11
-            if sess == 'x11':
-                glfw.init_hint(glfw.PLATFORM, glfw.PLATFORM_X11)
-        except glfw.GLFWError:
-            print('WARN: Failed to set glfw platform hint')
-            pass
 
         if not glfw.init():
             raise RuntimeError('GLFW init failed')
@@ -408,11 +439,11 @@ class viewer:
 
         glfw.window_hint(glfw.MAXIMIZED, start_maximized)
         glfw.window_hint(glfw.VISIBLE, not hidden)
+        glfw.window_hint(glfw.CONTEXT_CREATION_API, context_creation_api)
         
         # MacOS, WSL require forward-compatible core profile
         is_wsl = 'microsoft-standard' in uname().release
         if 'darwin' in platform or is_wsl:
-            glsl_version = "#version 150"
             glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
             glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
             glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
@@ -422,14 +453,6 @@ class viewer:
             glfw.window_hint(glfw.RED_BITS, 16)
             glfw.window_hint(glfw.GREEN_BITS, 16)
             glfw.window_hint(glfw.BLUE_BITS, 16)
-        else:
-            # GL 3.0 + GLSL 130
-            glsl_version = "#version 130"
-            # glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
-            # glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 0)
-            # glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE) # // 3.2+ only
-            # glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, GL.GL_TRUE)
-        
         from py.io import StdCaptureFD # type: ignore
         capture = StdCaptureFD(out=False, in_=False)
         try:
@@ -467,12 +490,8 @@ class viewer:
         self._implot_context = implot.create_context()
         implot.set_imgui_context(self._imgui_context)
 
-        # Transfer window address to imgui.backends.glfw_init_for_opengl
-        window_address = ctypes.cast(self._window, ctypes.c_void_p).value
-        assert window_address is not None
-        imgui.backends.glfw_init_for_opengl(window_address, True)
-        imgui.backends.opengl3_init(glsl_version)
-
+        # GlfwRenderer owns the ImGui platform and OpenGL backends below.
+        # Initializing the native GLFW backend here breaks Wayland windows.
         # Single dynamically resizable font
         self.default_font = imgui.get_io().fonts.add_font_from_file_ttf(self.get_default_font(), self.default_font_size)
 
@@ -705,10 +724,19 @@ class viewer:
 
                 imgui.render()
                 
+                # Clear the whole window, including areas outside ImGui clips.
+                gl.glDisable(gl.GL_SCISSOR_TEST)
+                gl.glColorMask(True, True, True, True)
                 gl.glClearColor(0, 0, 0, 1)
                 gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
-                self.renderer.render(imgui.get_draw_data())
+                # UI transparency blends into the window's RGB background;
+                # keep destination alpha opaque for desktop compositors.
+                gl.glColorMask(True, True, True, False)
+                try:
+                    self.renderer.render(imgui.get_draw_data())
+                finally:
+                    gl.glColorMask(True, True, True, True)
                 
                 # TODO: compute thread has to wait until sync is done
                 # and lock is released if calling upload_image()?
@@ -753,18 +781,24 @@ class viewer:
             return self.upload_image_torch(name, data)
 
     # Upload image from PyTorch tensor
-    def upload_image_torch(self, name, tensor):
+    def upload_image_torch(self, name, tensor, stream=None, timer=None, capacity=None):
         import torch
         assert isinstance(tensor, torch.Tensor)
 
         with self.lock(strict=False) as l:
             if l == nullcontext: # isinstance doesn't work
                 return
-            cuda_synchronize()
+            if stream is None:
+                cuda_synchronize()
             if not self.quit:
                 if name not in self._images:
+                    start = time.perf_counter()
                     self._images[name] = _texture(self.tex_interp_mode_min, self.tex_interp_mode_mag)
-                self._images[name].upload_torch(tensor)
+                    if timer is not None:
+                        timer.add_cpu('Texture', (time.perf_counter() - start) * 1000)
+                        timer.mark('Texture')
+                self._images[name].upload_torch(tensor, stream=stream, timer=timer,
+                                                capacity=capacity)
 
     def upload_image_np(self, name, data):
         assert isinstance(data, np.ndarray)
