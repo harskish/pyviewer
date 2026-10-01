@@ -719,8 +719,8 @@ def imgui_font_size(size):
     imgui.pop_font()
 
 # Full screen imgui window
-def begin_inline(name, inputs=True):
-    flags = 0
+def begin_inline(name, inputs=True, extra_flags=0):
+    flags = extra_flags
     flags |= imgui.WindowFlags_.no_title_bar
     flags |= imgui.WindowFlags_.no_resize
     flags |= imgui.WindowFlags_.no_move

@@ -144,6 +144,7 @@ let
       in !(builtins.elem name [
         ".direnv"
         ".git"
+        ".nix-python"
         ".venv"
         ".vscode"
         "build"

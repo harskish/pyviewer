@@ -92,7 +92,13 @@ class PyDockingViewer:
         with_node_editor_config=None,
         with_tex_inspect=False,
         with_font_awesome=False,
+        swap_interval=1,
+        hidden=False,
+        context_creation_api=None,
     ):
+        self._swap_interval = swap_interval
+        self._hidden = hidden
+        self._context_creation_api = context_creation_api
         # Historical references from the previous hello_imgui/immapp backend:
         #  immapp.run() python stub:   https://github.com/pthom/imgui_bundle/blob/v1.6.2/bindings/imgui_bundle/immapp/immapp_cpp.pyi#L162
         #  immapp.run() nanobind impl: https://github.com/pthom/imgui_bundle/blob/v1.6.2/external/immapp/bindings/pybind_immapp_cpp.cpp#L158
@@ -252,6 +258,10 @@ class PyDockingViewer:
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
         glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, gl.GL_TRUE)
+        if self._context_creation_api is not None:
+            glfw.window_hint(glfw.CONTEXT_CREATION_API, self._context_creation_api)
+        if self._hidden:
+            glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
 
         if self.hdr:
             glfw.window_hint(glfw.RED_BITS, 16)
@@ -268,7 +278,7 @@ class PyDockingViewer:
             sys.exit(1)
 
         glfw.make_context_current(window)
-        glfw.swap_interval(1)
+        glfw.swap_interval(self._swap_interval)
         return window
 
     def shutdown(self):
