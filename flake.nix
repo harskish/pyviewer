@@ -1,3 +1,4 @@
+# Entry point for nix build and nix develop; exposes packages and dev shells.
 {
   description = "Interactive Python viewers";
 
@@ -11,8 +12,10 @@
         "aarch64-darwin"
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
-      mkPkgs = system: import nixpkgs {
+      mkPkgs = system: cudaSupport: import nixpkgs {
         inherit system;
+        config.cudaSupport = cudaSupport;
+        config.allowUnfree = cudaSupport;
         config.allowUnfreePredicate = pkg:
           let name = nixpkgs.lib.getName pkg; in
           builtins.elem name [
@@ -37,7 +40,7 @@
     {
       packages = forAllSystems (system:
         let
-          pkgs = mkPkgs system;
+          pkgs = mkPkgs system false;
           packageSets = nixpkgs.lib.mapAttrs
             (_: pythonPackages: mkPackageSet pkgs pythonPackages)
             (pythonPackageSets pkgs);
@@ -57,7 +60,7 @@
 
       devShells = forAllSystems (system:
         let
-          pkgs = mkPkgs system;
+          pkgs = mkPkgs system (system == "x86_64-linux");
           shells = nixpkgs.lib.mapAttrs'
             (version: pythonPackages:
               let
@@ -69,6 +72,6 @@
               nixpkgs.lib.nameValuePair "python${version}" shell)
             (pythonPackageSets pkgs);
         in
-        shells // { default = shells.python312; });
+        shells // { default = shells.python313; });
     };
 }

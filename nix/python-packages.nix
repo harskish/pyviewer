@@ -1,3 +1,4 @@
+# Imported by flake.nix, shell.nix, and default.nix to define the Python packages.
 { pkgs, pythonPackages }:
 
 let
@@ -97,10 +98,18 @@ let
 
     buildInputs = lib.optionals stdenv.hostPlatform.isLinux [
       stdenv.cc.cc.lib
+      pkgs.glfw
       pkgs.libx11
       pkgs.libxext
       pkgs.zlib
     ];
+
+    # Use the same GLFW as pythonPackages.glfw instead of the wheel's bundled 3.3.
+    postInstall = lib.optionalString stdenv.hostPlatform.isLinux ''
+      bundleDir="$out/${pythonPackages.python.sitePackages}/imgui_bundle"
+      rm "$bundleDir"/libglfw.so*
+      ln -s ${pkgs.glfw}/lib/libglfw.so.3 "$bundleDir/libglfw.so.3"
+    '';
 
     dependencies = [ pythonPackages.numpy ];
     pythonImportsCheck = [ "imgui_bundle" ];
