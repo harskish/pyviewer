@@ -1,4 +1,5 @@
-{ pythonVersion ? "3.12" }:
+# Entry point for nix-shell (and direnv's `use nix`); imports the shared dev shell.
+{ pythonVersion ? "3.13" }:
 
 let
   pkgsBuiltin = import <nixpkgs>;
@@ -11,6 +12,8 @@ let
   ];
 
   pkgs = pkgsBuiltin {
+    config.cudaSupport = builtins.currentSystem == "x86_64-linux";
+    config.allowUnfree = builtins.currentSystem == "x86_64-linux";
     config.allowUnfreePredicate = pkg:
       let name = pkgs.lib.getName pkg; in
       builtins.elem name unfreePkgs

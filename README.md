@@ -79,14 +79,14 @@ Nix-managed packages:
 nix develop
 ```
 
-Python 3.12 is the default. Use `nix develop .#python311`, `.#python313`, or
+Python 3.13 is the default. Use `nix develop .#python311`, `.#python312`, or
 `.#python314` to select another supported interpreter.
 
 Build the package with `nix build`. The legacy `nix-shell` and
 `nix-build default.nix -A pyviewer` entry points are also available.
 Versioned flake packages such as `nix build .#pyviewer313` are provided for
 Python 3.11 through 3.14. With the legacy shell, select a version with
-`nix-shell --argstr pythonVersion 3.13`.
+`nix-shell --argstr pythonVersion 3.12`.
 
 The package set can also be imported by another Nix expression:
 
