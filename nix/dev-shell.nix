@@ -1,3 +1,4 @@
+# Imported by flake.nix and shell.nix to provide the development environment.
 { pkgs, pythonPackages, packageSet }:
 
 let
@@ -5,6 +6,7 @@ let
     packageSet.pyviewer
     pythonPackages.matplotlib
     pythonPackages.pillow
+    pythonPackages.torch
   ]);
   pythonVersion = pkgs.lib.versions.majorMinor pythonPackages.python.version;
 in

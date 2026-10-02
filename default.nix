@@ -1,3 +1,4 @@
+# Entry point for nix-build or `import ./.`; exposes the Python package set.
 { pkgs ? import <nixpkgs> {
     config.allowUnfreePredicate = pkg:
       (pkg.pname or "") == "pyviewer";
