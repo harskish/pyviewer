@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyviewer"
-dynamic = ["version"]
+dynamic = ["version"]  # read from `pyviewer/_version.py`
 description = "Interactive Python viewers"
 readme = "README.md"
 requires-python = ">=3.11"

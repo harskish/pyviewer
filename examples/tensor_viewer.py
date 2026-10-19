@@ -17,7 +17,7 @@ if __name__ == '__main__':
     y = torch.linspace(-1, 1, height, device='cuda')[None, None, :, None]
     tv.init(normalize=False)
     first = True
-    while True:
+    while tv.inst.running():
         if not tv.inst.paused.value or tv.inst.next.value:
             # Give each RGB channel in each batch image its own direction.
             angles = torch.rand(B, 3, device='cuda') * (2 * torch.pi)
