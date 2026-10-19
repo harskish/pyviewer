@@ -1,3 +1,13 @@
+# Version bump workflow:
+# Increment version number (together with other changes)
+# git commit
+# git tag -a "vX.X.X" -m "vX.X.X"  (only annotated tags show up in GitHub)
+# git push --follow-tags
+#
+# In case of mistake:
+# git tag --delete tagname
+# git push --delete origin tagname
+
 [build-system]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
