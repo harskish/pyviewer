@@ -441,9 +441,20 @@ class TensorViewer:
         self._error = None
         self._window_size = (0, 0)
         self.pan_handler = TensorPannableArea()
+        self._start()
+
+    def _start(self):
+        self._quit.clear()
+        self._started.clear()
+        self._finished.clear()
+        self._error = None
         self.thread = Thread(target=self.start_thread, name='pyviewer-tensor', daemon=True)
         self.thread.pydev_do_not_trace = True
         self.thread.start()
+
+    def restart(self):
+        self.thread.join()
+        self._start()
 
     @property
     def window_size(self):
@@ -462,6 +473,9 @@ class TensorViewer:
     def wait_for_close(self):
         self.thread.join()
         self._raise_error()
+
+    def running(self):
+        return not (self._quit.is_set() or self._finished.is_set())
 
     def close(self):
         self._quit.set()
@@ -485,13 +499,13 @@ class TensorViewer:
         Normalization uses only sampled values, so its range may change on pan.
         CUDA callers should finish producing the tensor before publishing it.
         """
-        import torch
-
+        if not self.running():
+            return
         self._raise_error()
-        if self._finished.is_set():
-            raise RuntimeError('Tensor viewer is closed')
         if self.paused.value and not ignore_pause and not self.next.value:
             return
+        import torch
+
         if not isinstance(tensor, torch.Tensor) or tensor.layout != torch.strided:
             raise TypeError('Expected a dense strided torch.Tensor')
         if tensor.ndim < 2 or any(n == 0 for n in tensor.shape):
@@ -704,22 +718,30 @@ class TensorViewer:
 inst: TensorViewer | None = None
 
 
-def init(title='Tensor viewer', *, sync=True, **kwargs):
+def init(title='tv', *, sync=True, **kwargs):
     global inst
-    if inst is None or inst._finished.is_set():
+    if inst is None:
         inst = TensorViewer(title, **kwargs)
-    if sync:
-        inst.wait_for_startup()
+        if sync:
+            inst.wait_for_startup()
     return inst
 
 
+def show_window(paused=False, next=False):
+    if inst is None:
+        init(paused=paused, next=next)
+    elif not inst.running():
+        inst.restart()
+        inst.paused.value = False
+    elif inst._hidden:
+        inst.show()
+
+
 def draw(tensor, **kwargs):
-    """Open the global viewer and publish a tensor reference."""
+    """Publish a tensor to the global viewer without reopening a closed window."""
     init().draw(tensor, **kwargs)
 
 
 def close():
-    global inst
     if inst is not None:
         inst.close()
-        inst = None

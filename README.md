@@ -43,6 +43,9 @@ tv.draw(other_tensor)
 tv.inst.wait_for_close()  # optional: keep the script alive until the window closes
 ```
 
+After Esc or window close, `tv.draw()` and `tv.init()` leave the viewer closed.
+Call `tv.show_window()` (or `tv.inst.restart()`) to open it again.
+
 The viewer retains a detached reference to the tensor, including its original
 device and strides. Cropping, integer-stride slicing and transposing create views;
 only the visible samples are packed for texture upload. CUDA tensors use direct
