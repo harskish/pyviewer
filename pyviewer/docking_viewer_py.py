@@ -473,16 +473,54 @@ class PyDockingViewer:
         self.draw_status_bar()
         imgui.end()
 
+    def _process_window_requests(self):
+        """
+        Handle window requests even when there is no drawable surface.
+        Overridden by TensorViewer.
+        """
+        pass
+
+    def _frame_wait_timeout(self):
+        now = time.monotonic()
+        if now - self.last_ui_active > self.idle_timeout_s:
+            return max(0, getattr(self, '_last_rendered_at', float('-inf'))
+                       + 1 / self.idle_fps - now)
+        return 0
+
+    def _should_render_frame(self):
+        # Non-input window events may wake the wait before the next idle frame.
+        now = time.monotonic()
+        return (now - self.last_ui_active <= self.idle_timeout_s
+                or now - getattr(self, '_last_rendered_at', float('-inf')) >= 1 / self.idle_fps)
+
     def _main_loop(self):
         warmup = 3
         try:
             while not glfw.window_should_close(self.window):
-                # Idle-mode: reduce frame rate if mouse/keyboard is not used for a while
-                time_since_activity = time.monotonic() - self.last_ui_active
-                if time_since_activity > self.idle_timeout_s:
-                    time.sleep(1/self.idle_fps)
-                
-                glfw.poll_events()
+                # Event waits release the CPU and wake promptly on input. Poll
+                # periodically even at zero FPS for programmatic viewer requests.
+                timeout = self._frame_wait_timeout()
+                if timeout > 0:
+                    glfw.wait_events_timeout(timeout)
+                else:
+                    glfw.poll_events()
+                self._process_window_requests()
+                if glfw.window_should_close(self.window):
+                    break
+
+                # Minimized/disconnected desktops can have no drawable surface.
+                # Skip all ImGui, CUDA-GL uploads, rendering and buffer swaps.
+                window_size = glfw.get_window_size(self.window)
+                framebuffer_size = glfw.get_framebuffer_size(self.window)
+                if min(*window_size, *framebuffer_size) <= 0:
+                    # Keep processing restore events without spinning. The timeout
+                    # also lets programmatic show/close requests run without input.
+                    glfw.wait_events_timeout(0.1)
+                    continue
+
+                if not self._should_render_frame():
+                    continue
+
                 self.impl.process_inputs()
 
                 imgui.new_frame()
@@ -503,6 +541,7 @@ class PyDockingViewer:
                 gl.glClear(gl.GL_COLOR_BUFFER_BIT)
                 imgui.render()
                 self.impl.render(imgui.get_draw_data())
+                self._last_rendered_at = time.monotonic()
                 
                 # Prevent red flash when framebuffer changes from SDR to HDR (KDE)
                 if warmup > 0:

@@ -71,10 +71,14 @@ void upload(uint64_t data_ptr, int width, int height, int pitch, uint64_t ptr, u
 }
 
 PYBIND11_MODULE(cuda_gl_interop, m) {
-    m.def("register", &register_resource, "register resource");
-    m.def("unregister", &unregister_resource, "unregister resource");
-    m.def("upload", &upload, "upload image data");
-    m.def("map_resource", &map_resource, "map image for CUDA access");
-    m.def("copy_to_resource", &copy_to_resource, "copy image on CUDA stream");
-    m.def("unmap_resource", &unmap_resource, "release image to OpenGL");
+    // A disconnected/idle desktop can block CUDA-GL interop for seconds.
+    // Release the GIL so the feeder thread can continue submitting CUDA work.
+    // Safe only while these native bodies use no Python objects or callbacks.
+    using ReleaseGIL = pybind11::call_guard<pybind11::gil_scoped_release>;
+    m.def("register", &register_resource, "register resource", ReleaseGIL());
+    m.def("unregister", &unregister_resource, "unregister resource", ReleaseGIL());
+    m.def("upload", &upload, "upload image data", ReleaseGIL());
+    m.def("map_resource", &map_resource, "map image for CUDA access", ReleaseGIL());
+    m.def("copy_to_resource", &copy_to_resource, "copy image on CUDA stream", ReleaseGIL());
+    m.def("unmap_resource", &unmap_resource, "release image to OpenGL", ReleaseGIL());
 }

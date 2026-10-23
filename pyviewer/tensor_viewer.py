@@ -97,7 +97,10 @@ def display_image(planes, normalize, limits=None, sampled=None):
         with torch.no_grad():
             if normalize:
                 lo, hi = limits if limits is not None else (sampled.min(), sampled.max())
-                scale = torch.where(hi > lo, hi - lo, torch.ones_like(hi))
+                if isinstance(hi, (int, float)):
+                    scale = hi - lo if hi > lo else 1.0
+                else:
+                    scale = torch.where(hi > lo, hi - lo, torch.ones_like(hi))
                 sampled = (sampled - lo) / scale
             elif planes[0].dtype == torch.uint8:
                 sampled = sampled / 255.0
@@ -161,6 +164,7 @@ class TensorPannableArea(PannableArea):
         super().__init__(force_mouse_capture=True)
         self.max_texture_size = None
         self.sample_shape = None
+        self.auto_limits = None
         self._grid_texture_count = 0
 
     def get_visible_box_canvas(self):
@@ -201,11 +205,14 @@ class TensorPannableArea(PannableArea):
         if self.snap_enabled and imgui.is_mouse_clicked(1) and self.mouse_hovers_content():
             self.snap_nearest_fractional_scale()
 
-    def draw_tensor(self, v, tensor, selection, normalize, cuda_stream=None, gpu_timer=None):
+    def draw_tensor(self, v, tensor, selection, normalize, manual_range=None,
+                    cuda_stream=None, gpu_timer=None):
         # Grid coordinates are virtual: each visible tile slices the original tensor.
         # Only viewport-sized samples are copied for texture upload.
         cW, cH = [max(0, int(n)) for n in imgui.get_content_region_avail()]
         self.canvas_w, self.canvas_h = cW, cH
+        if normalize:
+            self.auto_limits = None
         self.output_pos_tl[:] = imgui.get_cursor_screen_pos()
         tile_w, tile_h = tensor.shape[selection.x_dim], tensor.shape[selection.y_dim]
         if selection.grid_dim is None:
@@ -254,7 +261,7 @@ class TensorPannableArea(PannableArea):
                     tiles.append((row, col, tile_region, planes, sampled_image(planes)))
             if gpu_timer is not None:
                 gpu_timer.mark('Sample')
-            limits = None
+            limits = manual_range
             if normalize and tiles:
                 if tensor.is_cuda:
                     import torch
@@ -263,10 +270,13 @@ class TensorPannableArea(PannableArea):
                 else:
                     limits = (min(float(sampled.min()) for *_, sampled in tiles),
                               max(float(sampled.max()) for *_, sampled in tiles))
+            if normalize:
+                self.auto_limits = (tensor.device, tensor.dtype, limits) if tiles else None
             if gpu_timer is not None:
                 gpu_timer.mark('Range')
             for row, col, tile_region, planes, sampled in tiles:
-                image = display_image(planes, normalize, limits, sampled)
+                image = display_image(planes, normalize or manual_range is not None,
+                                      limits, sampled)
                 if gpu_timer is not None:
                     gpu_timer.mark('Convert')
                 self.sample_shape = image.shape
@@ -349,8 +359,37 @@ class _TensorDockingViewer(PyDockingViewer):
     def setup_state(self):
         self.pan_handler = self.owner.pan_handler
         self.pan_handler.set_callbacks(self.window)
-        self.idle_timeout_s = float('inf')
+        self.idle_timeout_s = 2
+        self.idle_fps = 5
+        self.render_stop_timeout_s = 3 * 60
+        # Keyboard, mouse motion and clicks are tracked by the base viewer.
+        # Chain after the pan handler so scrolling also wakes a suspended UI.
+        prev_scroll = glfw.set_scroll_callback(self.window, None)
+        def scroll_callback(*args):
+            self.last_ui_active = monotonic()
+            if prev_scroll is not None:
+                return prev_scroll(*args)
+        glfw.set_scroll_callback(self.window, scroll_callback)
         self.owner._started.set()
+
+    def _frame_wait_timeout(self):
+        if not self.owner.paused.value:
+            return 0
+        if monotonic() - self.last_ui_active >= self.render_stop_timeout_s:
+            return 1 / self.idle_fps  # No frames, but still handle external requests.
+        return super()._frame_wait_timeout()
+
+    def _should_render_frame(self):
+        # Incoming tensors are not UI activity. Leave them pending while idle;
+        # only input or unpausing should resume CUDA-GL work.
+        if not self.owner.paused.value:
+            return True
+        if monotonic() - self.last_ui_active >= self.render_stop_timeout_s:
+            return False
+        return super()._should_render_frame()
+
+    def _process_window_requests(self):
+        self.owner._process_window_requests(self)
 
     def pre_new_frame(self):
         self.owner._pre_new_frame(self)
@@ -418,11 +457,14 @@ class TensorViewer:
     GLFW windows in background threads are supported on Linux/Windows; macOS
     requires window/event handling on the main thread.
     P/Pause toggles updates; N/Space accepts one next tensor while paused.
+    While paused, input inactivity reduces rendering to 5 FPS after 2 seconds
+    and stops it after 3 minutes. Input or unpausing wakes the UI.
     """
 
     def __init__(self, title='Tensor viewer', *, normalize=True, vsync=True, hidden=False,
                  paused=False, next=False):
         self.title, self.normalize, self.vsync = title, normalize, vsync
+        self._manual_ranges = {}
         self.paused = c_bool(paused)
         self.next = c_bool(next)
         self._hidden = hidden
@@ -538,18 +580,20 @@ class TensorViewer:
             self._finished.set()
             self._started.set()  # Wake startup waiters on failure as well.
 
-    def _pre_new_frame(self, v):
+    def _process_window_requests(self, v):
         if self._quit.is_set():
             glfw.set_window_should_close(v.window, True)
             return
-        if imgui.is_key_pressed(imgui.Key.p, repeat=False) or imgui.is_key_pressed(imgui.Key.pause, repeat=False):
-            self.paused.value = not self.paused.value
-        if imgui.is_key_pressed(imgui.Key.n, repeat=False) or imgui.is_key_pressed(imgui.Key.space, repeat=True):
-            self.next.value = True
         if self._hidden != v._hidden:
             v._hidden = self._hidden
             (glfw.hide_window if self._hidden else glfw.show_window)(v.window)
         self._window_size = glfw.get_window_size(v.window)
+
+    def _pre_new_frame(self, v):
+        if imgui.is_key_pressed(imgui.Key.p, repeat=False) or imgui.is_key_pressed(imgui.Key.pause, repeat=False):
+            self.paused.value = not self.paused.value
+        if imgui.is_key_pressed(imgui.Key.n, repeat=False) or imgui.is_key_pressed(imgui.Key.space, repeat=True):
+            self.next.value = True
         # A debugger may suspend the producer while it holds this lock. Keep
         # rendering the previous reference rather than waiting for publication.
         if self._lock.acquire(blocking=False):
@@ -585,14 +629,34 @@ class TensorViewer:
                 timer.mark('Start')
                 cpu_start = perf_counter()
                 self.pan_handler.draw_tensor(v, self._tensor, self._selection,
-                                             self.normalize, cuda_stream=stream, gpu_timer=timer)
+                                             self.normalize, self._manual_range(),
+                                             cuda_stream=stream, gpu_timer=timer)
                 self._tensor.record_stream(stream)
                 cpu_ms = (perf_counter() - cpu_start) * 1000
                 timer.mark('Other')
                 self._timing_pending.append((timer, cpu_ms))
         else:
-            self.pan_handler.draw_tensor(v, self._tensor, self._selection, self.normalize)
+            self.pan_handler.draw_tensor(v, self._tensor, self._selection,
+                                         self.normalize, self._manual_range())
         self._draw_status_overlay(v, canvas_pos)
+
+    def _manual_range(self):
+        if self.normalize:
+            return None
+        import torch
+
+        default = (0.0, 255.0) if self._tensor.dtype == torch.uint8 else (0.0, 1.0)
+        return self._manual_ranges.setdefault(self._tensor.dtype, default)
+
+    def _use_auto_range(self):
+        if self.pan_handler.auto_limits is None:
+            return
+        device, dtype, limits = self.pan_handler.auto_limits
+        if device != self._tensor.device or dtype != self._tensor.dtype:
+            return
+        if self._tensor.is_cuda:
+            self._cuda_streams[device].synchronize()
+        self._manual_ranges[dtype] = tuple(float(limit) for limit in limits)
 
     def _draw_status_overlay(self, v, canvas_pos):
         if not (self.paused.value or self.next.value):
@@ -708,10 +772,21 @@ class TensorViewer:
                 s.channels = tuple(channels)
             if changed:
                 self.pan_handler.reset_xform()
-        _, self.normalize = imgui.checkbox('Normalize visible samples', self.normalize)
+        changed, self.normalize = imgui.checkbox('Normalize visible samples', self.normalize)
+        if changed and not self.normalize:
+            self._use_auto_range()
         imgui.same_line()
         if imgui.button('Reset view'):
             self.pan_handler.reset_xform()
+        if not self.normalize:
+            import torch
+
+            limits = self._manual_range()
+            minimum = 0.0 if tensor.dtype == torch.uint8 else -2.0
+            maximum = 255.0 if tensor.dtype == torch.uint8 else 2.0
+            _, limits = imgui.slider_float2('Display range', limits,
+                                             min(minimum, *limits), max(maximum, *limits))
+            self._manual_ranges[tensor.dtype] = tuple(sorted(limits))
         imgui.separator()
 
 

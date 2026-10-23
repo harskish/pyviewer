@@ -32,6 +32,11 @@ reveal the UI scale slider (0.1 to 5.0);
 right-click the slider to reset to 1.0.
 Drag to pan, scroll to zoom, double-click to reset, or right-click to snap scale.
 Press P/Pause to toggle updates and N/Space to accept one tensor while paused.
+While paused, rendering drops to 5 FPS after two seconds without input and stops
+entirely after three minutes. Mouse movement, clicks, scrolling, or keyboard input
+wakes the viewer. Tensor publication does not reset the inactivity timer; new
+references remain pending while rendering is stopped. Unpaused rendering continues
+normally.
 
 ```python
 from pyviewer import tensor_viewer as tv
@@ -52,9 +57,13 @@ only the visible samples are packed for texture upload. CUDA tensors use direct
 CUDA–GL interop; CPU tensors upload from host memory. Each
 texture dimension is bounded by the framebuffer size and `GL_MAX_TEXTURE_SIZE`.
 Zoomed-out sampling approximates nearest sampling on a regular integer lattice;
-zoomed-in sampling uses every visible source pixel. Normalization uses visible
-samples only, so the intensity range can change while panning. Disable it with
-`tv.init(normalize=False)` for float values in [0, 1] or uint8 in [0, 255].
+zoomed-in sampling uses every visible source pixel. Automatic normalization uses
+visible samples only, so the intensity range can change while panning. Turn it
+off in the controls (or use `tv.init(normalize=False)`) to select a fixed display
+range with the two-value slider. Its defaults are [0, 1] for float tensors and
+[0, 255] for uint8 tensors. The float slider spans [-2, 2]; Ctrl-click a slider
+value to enter a wider limit. Turning automatic normalization off copies its last
+visible sample limits into the sliders.
 
 Selections persist across calls with the same shape when selection arguments are
 omitted. In-place updates appear on subsequent frames; coordinate concurrent
