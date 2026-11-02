@@ -164,9 +164,16 @@ let
       && !(lib.hasSuffix ".ini" name);
   };
 
+  pyviewerVersionMatch = builtins.match
+    "__version__ = '([^']+)'[[:space:]]*"
+    (builtins.readFile ../pyviewer/_version.py);
+  pyviewerVersion = if pyviewerVersionMatch == null
+    then throw "pyviewer: could not read version from pyviewer/_version.py"
+    else builtins.head pyviewerVersionMatch;
+
   pyviewer = pythonPackages.buildPythonPackage {
     pname = "pyviewer";
-    version = "2.1.0";
+    version = pyviewerVersion;
     pyproject = true;
     src = source;
 
@@ -179,7 +186,6 @@ let
       pythonPackages.setuptools
       lightProcess
       pythonPackages.py
-    ] ++ lib.optionals stdenv.hostPlatform.isLinux [
       pythonWayland
     ];
 
