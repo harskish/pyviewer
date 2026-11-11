@@ -24,7 +24,7 @@ if "torch" in sys.modules:
     import torch # for syntax highlighting
 
 def is_tensor(obj):
-    return "torch" in sys.modules and torch.is_tensor(obj)
+    return "torch" in sys.modules and sys.modules['torch'].is_tensor(obj)
 
 import importlib.util
 if not importlib.util.find_spec("torch"):

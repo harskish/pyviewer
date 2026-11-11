@@ -34,6 +34,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+sdl3 = ["pysdl3>=0.9.11b1"]
 # torch.utils.cpp_extension invokes Ninja at runtime when building the optional
 # CUDA, OpenGL, or Metal interop extension.
 custom-ops = ["ninja"]
@@ -52,6 +53,7 @@ version = { attr = "pyviewer._version.__version__" }
 [tool.setuptools.package-data]
 pyviewer = [
   "*.ttf",
+  "sdl_gpu_shaders/*",
   "custom_ops/*.cpp",
   "custom_ops/*.mm",
   "custom_ops/*.metal",

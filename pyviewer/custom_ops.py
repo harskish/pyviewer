@@ -74,15 +74,15 @@ def _get_plugin_impl(
 
     # Linker options.
     if system() == 'Linux':
-        cflags = ['-O3', '-std=c++17', *extra_cflags]
+        cflags = ['-O3', *extra_cflags]
         ldflags = ['-lGL', '-lGLEW', '-lEGL'] if ldflags is None else ldflags
     elif system() == 'Darwin':
-        cflags = ['-O3', '-std=c++17', '-DGL_SILENCE_DEPRECATION', *extra_cflags]
+        cflags = ['-O3', '-DGL_SILENCE_DEPRECATION', *extra_cflags]
         ldflags = ['-framework OpenGL', '-framework Cocoa'] if ldflags is None else ldflags
     elif system() == 'Windows':
         libs = ['user32', 'opengl32']
         ldflags = (['/LIBPATH:' + lib_dir] + ['/DEFAULTLIB:' + x for x in libs]) if ldflags is None else ldflags
-        cflags = ['/O2', '/DWIN32', '/std:c++17','/permissive-', '/w', *extra_cflags]
+        cflags = ['/O2', '/DWIN32', '/permissive-', '/w', *extra_cflags]
 
     # Some containers set this to contain old architectures that won't compile. We only need the one installed in the machine.
     os.environ['TORCH_CUDA_ARCH_LIST'] = ''

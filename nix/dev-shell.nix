@@ -6,11 +6,19 @@ let
     packageSet.pyviewer
     pythonPackages.matplotlib
     pythonPackages.pillow
+    pythonPackages.pysdl3
     pythonPackages.torch
   ]);
   pythonVersion = pkgs.lib.versions.majorMinor pythonPackages.python.version;
 in
 pkgs.mkShell {
+  # Python's withPackages environment does not run PySDL3's setup hook.
+  # Use its Nix-provided libraries instead of downloading into site-packages.
+  SDL_DISABLE_METADATA = "1";
+  SDL_DOWNLOAD_BINARIES = "0";
+  SDL_CHECK_BINARY_VERSION = "0";
+  SDL_CHECK_VERSION = "0";
+
   packages = [
     python
     pkgs.bashInteractive

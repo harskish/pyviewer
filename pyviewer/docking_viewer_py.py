@@ -114,7 +114,7 @@ class PyDockingViewer:
 
         # Normally setting no_mouse_input windows flags on containing window is enough,
         # but docking (presumably) seems to be capturing mouse input regardless.
-        self.pan_handler = PannableArea(force_mouse_capture=True)
+        self.pan_handler = self._create_pan_handler()
         self._ui_scale = 1.0
         self.ui_locked = True
 
@@ -183,7 +183,7 @@ class PyDockingViewer:
         self._load_window_size()
 
         # Create window + imgui backend
-        self.window = self.impl_glfw_init()
+        self.window = self._create_window()
         imgui.create_context()
         self._setup_imgui_context(name)
         self.setup_theme()  # user-overridable
@@ -191,9 +191,31 @@ class PyDockingViewer:
         self.pan_handler.clear_color = imgui.get_style().color_(imgui.Col_.window_bg)
 
         self.load_fonts()
-        egl_patch.patch()
-        self.impl = GlfwRenderer(self.window, attach_callbacks=True)
+        self.impl = self._create_renderer()
+        self._install_platform_callbacks()
 
+        self._load_builtin_settings()
+        self.load_settings()
+        self.setup_state()
+        self.start_event.set()
+
+        self._main_loop()
+
+    def _create_pan_handler(self):
+        return PannableArea(force_mouse_capture=True)
+
+    def _create_window(self):
+        return self.impl_glfw_init()
+
+    def _create_renderer(self):
+        egl_patch.patch()
+        return GlfwRenderer(self.window, attach_callbacks=True)
+
+    def _clear_frame(self):
+        gl.glClearColor(0.08, 0.08, 0.08, 1)
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+
+    def _install_platform_callbacks(self):
         # Set own glfw callbacks, chained with previous callback if present.
         def noop(*args, **kwargs):
             return False
@@ -224,13 +246,6 @@ class PyDockingViewer:
         glfw.set_mouse_button_callback(self.window, click_callback)
         
         self.pan_handler.set_callbacks(self.window)
-
-        self._load_builtin_settings()
-        self.load_settings()
-        self.setup_state()
-        self.start_event.set()
-
-        self._main_loop()
 
     def impl_glfw_init(self):
         width, height = self._windowed_size
@@ -283,6 +298,27 @@ class PyDockingViewer:
     def shutdown(self):
         if self.window:
             glfw.set_window_should_close(self.window, glfw.TRUE)
+
+    def _window_should_close(self):
+        return glfw.window_should_close(self.window)
+
+    def _pump_events(self, timeout=0):
+        if timeout > 0:
+            glfw.wait_events_timeout(timeout)
+        else:
+            glfw.poll_events()
+
+    def _get_window_sizes(self):
+        return glfw.get_window_size(self.window), glfw.get_framebuffer_size(self.window)
+
+    def _apply_window_title(self):
+        glfw.set_window_title(self.window, self._window_title)
+
+    def _swap_buffers(self):
+        glfw.swap_buffers(self.window)
+
+    def _destroy_platform(self):
+        glfw.terminate()
     
     def _setup_imgui_context(self, name: str):
         io = imgui.get_io()
@@ -311,6 +347,11 @@ class PyDockingViewer:
         self._ui_scale = scale
         self.scale_style_sizes()
 
+    @property
+    def _render_scale(self):
+        """UI scale in window coordinates; platform backends may add DPI scaling."""
+        return self.ui_scale
+
     # Includes keyboard (glfw.KEY_A) and mouse (glfw.MOUSE_BUTTON_LEFT)
     def keydown(self, key: Union[int, str]):
         if isinstance(key, str):
@@ -325,7 +366,7 @@ class PyDockingViewer:
 
     def scale_style_sizes(self):
         """More conservative alternative to imgui.get_style().scale_all_sizes()"""
-        factor = self.ui_scale
+        factor = self._render_scale
         font_size = 9 * factor
         spacing = font_size * 0.3
 
@@ -346,7 +387,7 @@ class PyDockingViewer:
                 if imgui.begin_menu('App', True):
                     clicked_quit, _ = imgui.menu_item('Quit', 'Cmd+Q', False, True)
                     if clicked_quit:
-                        glfw.set_window_should_close(self.window, True)
+                        self.shutdown()
                     imgui.end_menu()
 
             if self.show_view_menu:
@@ -365,7 +406,7 @@ class PyDockingViewer:
             # Right-aligned button for locking / unlocking UI
             t = 'L' if self.ui_locked else 'U'
             c = [0.8, 0.0, 0.0] if self.ui_locked else [0.0, 1.0, 0.0]
-            s = self.ui_scale
+            s = self._render_scale
 
             # same_line() and negative sizes don't work within menu bar
             # => use an invisible button for spacing instead.
@@ -380,7 +421,7 @@ class PyDockingViewer:
                 min_scale = 0.1
 
                 imgui.set_next_item_width(300)
-                ch, val = imgui.slider_float('', s, min_scale, max_scale, format='%.2f')
+                ch, val = imgui.slider_float('', self.ui_scale, min_scale, max_scale, format='%.2f')
                 if imgui.is_item_hovered() and imgui.is_mouse_clicked(imgui.MouseButton_.right):
                     (ch, val) = (True, 1.0)
 
@@ -453,8 +494,8 @@ class PyDockingViewer:
 
         viewport = imgui.get_main_viewport()
         style = imgui.get_style()
-        pad = style.window_padding[1] + style.item_spacing[1] + 24 * self.ui_scale
-        h = max(24 * self.ui_scale, pad)
+        pad = style.window_padding[1] + style.item_spacing[1] + 24 * self._render_scale
+        h = max(24 * self._render_scale, pad)
 
         imgui.set_next_window_pos((viewport.pos[0], viewport.pos[1] + viewport.size[1] - h))
         imgui.set_next_window_size((viewport.size[0], h))
@@ -495,26 +536,22 @@ class PyDockingViewer:
     def _main_loop(self):
         warmup = 3
         try:
-            while not glfw.window_should_close(self.window):
+            while not self._window_should_close():
                 # Event waits release the CPU and wake promptly on input. Poll
                 # periodically even at zero FPS for programmatic viewer requests.
                 timeout = self._frame_wait_timeout()
-                if timeout > 0:
-                    glfw.wait_events_timeout(timeout)
-                else:
-                    glfw.poll_events()
+                self._pump_events(timeout)
                 self._process_window_requests()
-                if glfw.window_should_close(self.window):
+                if self._window_should_close():
                     break
 
                 # Minimized/disconnected desktops can have no drawable surface.
                 # Skip all ImGui, CUDA-GL uploads, rendering and buffer swaps.
-                window_size = glfw.get_window_size(self.window)
-                framebuffer_size = glfw.get_framebuffer_size(self.window)
+                window_size, framebuffer_size = self._get_window_sizes()
                 if min(*window_size, *framebuffer_size) <= 0:
                     # Keep processing restore events without spinning. The timeout
                     # also lets programmatic show/close requests run without input.
-                    glfw.wait_events_timeout(0.1)
+                    self._pump_events(0.1)
                     continue
 
                 if not self._should_render_frame():
@@ -523,7 +560,7 @@ class PyDockingViewer:
                 self.impl.process_inputs()
 
                 imgui.new_frame()
-                imgui.push_font(self.default_font, self.initial_font_size * self.ui_scale)
+                imgui.push_font(self.default_font, self.initial_font_size * self._render_scale)
 
                 self._handle_global_shortcuts()
                 self.pre_new_frame()
@@ -533,11 +570,10 @@ class PyDockingViewer:
                 self._draw_status_bar_if_needed()
                 imgui.end()  # end dockspace host
 
-                glfw.set_window_title(self.window, self._window_title)
+                self._apply_window_title()
                 imgui.pop_font()
 
-                gl.glClearColor(0.08, 0.08, 0.08, 1)
-                gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+                self._clear_frame()
                 imgui.render()
                 self.impl.render(imgui.get_draw_data())
                 self._last_rendered_at = time.monotonic()
@@ -547,7 +583,7 @@ class PyDockingViewer:
                     warmup -= 1
                     continue
 
-                glfw.swap_buffers(self.window)
+                self._swap_buffers()
         finally:
             self.stop_event.set()
             self.save_settings()
@@ -579,8 +615,8 @@ class PyDockingViewer:
         try:
             data = {
                 'ui_scale': float(self.ui_scale),
-                'width': glfw.get_window_size(self.window)[0],
-                'height': glfw.get_window_size(self.window)[1],
+                'width': self._get_window_sizes()[0][0],
+                'height': self._get_window_sizes()[0][1],
             }
             Path(self._prefs_path).write_text(json.dumps(data, indent=2), encoding='utf-8')
         except Exception:
@@ -605,7 +641,7 @@ class PyDockingViewer:
             except Exception:
                 pass
 
-        glfw.terminate()
+        self._destroy_platform()
 
     def get_default_font_path(self):
         font = Path(__file__).parent / 'MPLUSRounded1c-Medium.ttf'
@@ -922,7 +958,7 @@ class PyDockingViewer:
         if io.key_alt and imgui.is_key_pressed(imgui.Key.enter, repeat=False):
             self.toggle_fullscreen()
         if imgui.is_key_pressed(imgui.Key.escape, repeat=False):
-            glfw.set_window_should_close(self.window, True)
+            self.shutdown()
 
     def set_window_title(self, title, suffix=False):
         """
@@ -936,7 +972,7 @@ class PyDockingViewer:
         self._window_title = title
         if threading.get_native_id() == self.ui_tid and self.window is not None:
             # If called from compute thread, this gets applied in the render loop.
-            glfw.set_window_title(self.window, title)
+            self._apply_window_title()
 
     #########################
     # User provided callbacks

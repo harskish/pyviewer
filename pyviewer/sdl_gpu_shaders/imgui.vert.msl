@@ -1,0 +1,43 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Transform
+{
+    float2 scale;
+    float2 translate;
+};
+
+struct main0_out
+{
+    float2 frag_uv [[user(locn0)]];
+    float4 frag_color [[user(locn1)]];
+    float4 gl_Position [[position]];
+};
+
+struct main0_in
+{
+    float2 position [[attribute(0)]];
+    float2 uv [[attribute(1)]];
+    float4 color [[attribute(2)]];
+};
+
+static inline __attribute__((always_inline))
+float3 srgb_to_linear(thread const float3& c)
+{
+    return select(c / float3(12.9200000762939453125), powr((c + float3(0.054999999701976776123046875)) / float3(1.05499994754791259765625), float3(2.400000095367431640625)), c > float3(0.040449999272823333740234375));
+}
+
+vertex main0_out main0(main0_in in [[stage_in]], constant Transform& transform [[buffer(0)]])
+{
+    main0_out out = {};
+    out.frag_uv = in.uv;
+    float3 param = in.color.xyz;
+    out.frag_color = float4(srgb_to_linear(param), in.color.w);
+    out.gl_Position = float4((in.position * transform.scale) + transform.translate, 0.0, 1.0);
+    return out;
+}
+
