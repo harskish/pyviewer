@@ -46,11 +46,13 @@ pkgs.mkShell {
   ]);
 
   shellHook = ''
-    if [ -f pyproject.toml ] && [ -f nix/dev-shell.nix ]; then
-      mkdir -p .nix-python/bin
-      ln -sfn "${python}/bin/python" ".nix-python/bin/python${pythonVersion}"
-      ln -sfn "python${pythonVersion}" .nix-python/bin/python3
-      ln -sfn "python${pythonVersion}" .nix-python/bin/python
+    pyviewer_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    if [ -f "$pyviewer_root/pyproject.toml" ] && [ -f "$pyviewer_root/nix/dev-shell.nix" ]; then
+      export PYTHONPATH="$pyviewer_root''${PYTHONPATH:+:$PYTHONPATH}"
+      mkdir -p "$pyviewer_root/.nix-python/bin"
+      ln -sfn "${python}/bin/python" "$pyviewer_root/.nix-python/bin/python${pythonVersion}"
+      ln -sfn "python${pythonVersion}" "$pyviewer_root/.nix-python/bin/python3"
+      ln -sfn "python${pythonVersion}" "$pyviewer_root/.nix-python/bin/python"
     fi
   '';
 }
