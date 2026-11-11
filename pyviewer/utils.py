@@ -1,3 +1,7 @@
+from .import_order import prepare_imgui_import
+
+prepare_imgui_import()
+
 import numpy as np
 from imgui_bundle import imgui
 import contextlib

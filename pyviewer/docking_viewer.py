@@ -7,10 +7,9 @@ import time
 from typing import Union
 from collections import OrderedDict
 from functools import lru_cache, partial
+from .import_order import prepare_imgui_import
 
-# Some callbacks broken if imported before imgui_bundle...??
-if sys.platform == 'Darwin':
-    assert 'glfw' not in sys.modules or 'imgui_bundle' in sys.modules, 'glfw should be imported after pyviewer'
+prepare_imgui_import()
 
 from imgui_bundle.demos_python.demo_utils import demos_assets_folder
 from imgui_bundle import hello_imgui, glfw_utils, imgui, immapp # type: ignore

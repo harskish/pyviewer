@@ -12,6 +12,17 @@ from pathlib import Path
 from threading import Event, Lock, Thread, current_thread
 from time import monotonic, perf_counter
 
+import os
+import sys
+from .import_order import prepare_imgui_import
+
+prepare_imgui_import()
+
+if sys.platform == 'linux':
+    import glfw
+    if os.environ.get('WAYLAND_DISPLAY'):
+        assert glfw.platform_supported(glfw.PLATFORM_WAYLAND), 'Tensor viewer requires a Wayland-capable GLFW'
+
 import numpy as np
 from imgui_bundle import imgui
 import glfw

@@ -11,10 +11,9 @@ from functools import lru_cache, partial
 
 from . import hdr_patch
 from . import egl_patch
+from .import_order import prepare_imgui_import
 
-# Some callbacks broken if imported before imgui_bundle...??
-if sys.platform == 'Darwin':
-    assert 'glfw' not in sys.modules or 'imgui_bundle' in sys.modules, 'glfw should be imported after pyviewer'
+prepare_imgui_import()
 
 from imgui_bundle import imgui  # type: ignore
 from imgui_bundle.python_backends.glfw_backend import GlfwRenderer

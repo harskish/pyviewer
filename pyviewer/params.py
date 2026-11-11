@@ -1,3 +1,7 @@
+from .import_order import prepare_imgui_import
+
+prepare_imgui_import()
+
 from imgui_bundle import imgui
 from pyviewer.utils import enum_slider, combo_box_vals, slider_range_int, slider_range_float, strict_dataclass, cfloat
 from typing import Callable, List #Tuple

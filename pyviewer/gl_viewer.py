@@ -14,13 +14,14 @@ from sys import platform
 import time
 from contextlib import contextmanager, nullcontext
 from platform import uname
+from .import_order import prepare_imgui_import
+
+prepare_imgui_import()
+
 from .utils import is_xrdp
 
 from . import egl_patch
 import OpenGL.GL as gl
-
-# Some callbacks broken if imported before imgui_bundle...??
-assert 'glfw' not in sys.modules or 'imgui_bundle' in sys.modules, 'glfw should be imported after pyviewer'
 
 from imgui_bundle import imgui, implot
 from imgui_bundle.python_backends.glfw_backend import GlfwRenderer

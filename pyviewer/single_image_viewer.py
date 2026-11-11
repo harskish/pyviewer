@@ -7,6 +7,10 @@ import random
 import string
 import time
 import sys
+from .import_order import prepare_imgui_import
+
+prepare_imgui_import()
+
 from imgui_bundle import imgui, implot
 import glfw
 import ctypes
