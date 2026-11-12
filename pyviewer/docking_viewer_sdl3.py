@@ -1,8 +1,8 @@
 """SDL_GPU + imgui_bundle prototype with HDR presentation.
 
 Uses Vulkan on Linux/Windows and Metal on macOS, with stock PySDL3 bindings.
-Floating-point images are linear Rec.709 by default, with 1.0 meaning SDR white.
-Torch images use a CPU upload path; the GLFW viewer's GL interop is not used.
+Images are linear Rec.709 by default; Rec.2020/PQ input is also supported.
+GPU tensors use native MPS/Metal or CUDA/Vulkan interop when available.
 """
 
 import ctypes
@@ -25,6 +25,18 @@ class SDL3PannableArea(PannableArea):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._wheel_pos = None
+        self._hovered = False
+        self.nearest = True
+        self._draw_frame = -1
+
+    def get_hdpi_scale(self):
+        return tuple(imgui.get_io().display_framebuffer_scale)
+
+    def set_interp_linear(self):
+        self.nearest = False
+
+    def set_interp_nearest(self):
+        self.nearest = True
 
     @property
     def mouse_pos_abs(self):
@@ -40,7 +52,10 @@ class SDL3PannableArea(PannableArea):
         self.output_pos_tl[:] = imgui.get_cursor_screen_pos()
         imgui.invisible_button('canvas##' + self.id, (canvas_width, canvas_height),
             imgui.ButtonFlags_.mouse_button_left | imgui.ButtonFlags_.mouse_button_right)
+        self._hovered = imgui.is_item_hovered()
+        self._draw_frame = imgui.get_frame_count()
         self.handle_pan()
+        texture.nearest = self.nearest
         draw_list = imgui.get_window_draw_list()
         lo = tuple(self.output_pos_tl)
         hi = tuple(self.output_pos_tl + (canvas_width, canvas_height))
@@ -55,7 +70,7 @@ class SDL3PannableArea(PannableArea):
     def consume_wheel(self, x, y, pos):
         self._wheel_pos = pos
         try:
-            if not (self.zoom_enabled and self.mouse_hovers_content() and self.tex_h > 0):
+            if not (self._draw_frame == imgui.get_frame_count() and self._hovered and self.zoom_enabled and self.mouse_hovers_content() and self.tex_h > 0):
                 return False
             self.mouse_wheel_callback(None, x, y)
             return True
@@ -69,17 +84,23 @@ class SDL3DockingViewer(PyDockingViewer):
     keydown accepts an SDL scancode or a name such as 'A' or 'ESCAPE'.
     hdr: 'auto' prefers linear HDR then PQ then SDR; True requires HDR;
     'linear'/'pq' require that mode, False/'sdr' selects SDR explicitly.
-    image_color_space: 'linear' (1.0 = SDR white) or 'srgb', including floats.
+    image_color_space: 'linear' (1.0 = SDR white), 'srgb', or 'rec2020_pq'
+    (absolute ST 2084 encoded Rec.2020). Applies to floats and integers alike.
     sdr_white_nits: reference white for PQ output. Linear output uses SDL's
     reported SDR-white scale. Display capability is exposed through hdr_info.
+    gpu_interop: 'auto' uses native GPU copies when available (CPU fallback with
+    a warning), 'required' rejects unavailable GPU interop, 'off' uses CPU uploads.
     """
 
     def __init__(self, name, *, hdr='auto', image_color_space='linear', sdr_white_nits=203.0,
-                 gpu_driver=None, debug_gpu=False, normalize=False, **kwargs):
+                 gpu_driver=None, debug_gpu=False, normalize=False, gpu_interop='auto', **kwargs):
         assert 'context_creation_api' not in kwargs, 'GLFW context_creation_api is not an SDL option'
         assert hdr in ('auto', 'linear', 'pq', 'sdr', True, False)
-        assert image_color_space in ('linear', 'srgb')
+        assert image_color_space in ('linear', 'srgb', 'rec2020_pq')
         assert sdr_white_nits > 0
+        assert gpu_interop in ('auto', 'required', 'off')
+        self.gpu_interop = gpu_interop
+        self._published_image = None
         self._hdr_request = hdr
         self.image_color_space = image_color_space
         self.sdr_white_nits = sdr_white_nits
@@ -92,6 +113,7 @@ class SDL3DockingViewer(PyDockingViewer):
         self.gpu_device = None
         self._window_claimed = False
         self.hdr_info = {}
+        self._drop_paths = None
         try:
             super().__init__(name, hdr=hdr not in (False, 'sdr'), normalize=normalize, **kwargs)
         except BaseException:
@@ -121,7 +143,7 @@ class SDL3DockingViewer(PyDockingViewer):
             self.window = sdl.SDL_CreateWindow(self._window_title.encode(), *self._windowed_size, flags)
             assert self.window, sdl.SDL_GetError()
             formats = sdl.SDL_GPU_SHADERFORMAT_SPIRV | sdl.SDL_GPU_SHADERFORMAT_MSL
-            self.gpu_device = checked(sdl.SDL_CreateGPUDevice(formats, self._debug_gpu, self.gpu_driver.encode()))
+            self.gpu_device = self._create_gpu_device(formats)
             checked(sdl.SDL_ClaimWindowForGPUDevice(self.gpu_device, self.window))
             self._window_claimed = True
             self._configure_swapchain()
@@ -131,10 +153,32 @@ class SDL3DockingViewer(PyDockingViewer):
             self._destroy_platform()
             raise
 
+    def _create_gpu_device(self, formats):
+        # CUDA external-memory handles must be opted into at Vulkan device
+        # creation, including when Torch is imported after the viewer opens.
+        if self.gpu_driver == 'vulkan' and sys.platform == 'linux' and self.gpu_interop != 'off':
+            props = sdl.SDL_CreateProperties()
+            extensions = (ctypes.c_char_p * 2)(b'VK_KHR_external_memory_fd', b'VK_KHR_external_semaphore_fd')
+            options = sdl.SDL_GPUVulkanOptions(vulkan_api_version=(1 << 22) | (1 << 12),
+                device_extension_count=2, device_extension_names=extensions)
+            try:
+                checked(sdl.SDL_SetStringProperty(props, sdl.SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING, b'vulkan'))
+                checked(sdl.SDL_SetBooleanProperty(props, sdl.SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, self._debug_gpu))
+                checked(sdl.SDL_SetBooleanProperty(props, sdl.SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, True))
+                checked(sdl.SDL_SetPointerProperty(props, sdl.SDL_PROP_GPU_DEVICE_CREATE_VULKAN_OPTIONS_POINTER, ctypes.addressof(options)))
+                device = sdl.SDL_CreateGPUDeviceWithProperties(props)
+                if device:
+                    return device
+                if self.gpu_interop == 'required':
+                    return checked(device)
+            finally:
+                sdl.SDL_DestroyProperties(props)
+        return checked(sdl.SDL_CreateGPUDevice(formats, self._debug_gpu, self.gpu_driver.encode()))
+
     def _create_renderer(self):
         renderer = SDLGPUImguiRenderer(self.window, self.gpu_device, mode=self.hdr_mode,
             sdr_white_nits=self.sdr_white_nits, on_content_scale=self._set_content_scale,
-            on_wheel=self.pan_handler.consume_wheel)
+            on_wheel=self.pan_handler.consume_wheel, gpu_interop=self.gpu_interop)
         renderer.sc_rgb_white = self.hdr_info['sdr_white_level']
         return renderer
 
@@ -187,10 +231,22 @@ class SDL3DockingViewer(PyDockingViewer):
         if kind == sdl.SDL_EVENT_QUIT:
             self.shutdown()
             return
-        if kind == sdl.SDL_EVENT_DROP_FILE:
-            if event.drop.windowID == sdl.SDL_GetWindowID(self.window):
-                self.drag_and_drop_callback([Path(event.drop.data.decode())])
-                self.last_ui_active = time.monotonic()
+        if kind in (sdl.SDL_EVENT_DROP_BEGIN, sdl.SDL_EVENT_DROP_FILE, sdl.SDL_EVENT_DROP_COMPLETE):
+            if event.drop.windowID != sdl.SDL_GetWindowID(self.window):
+                return
+            if kind == sdl.SDL_EVENT_DROP_BEGIN:
+                self._drop_paths = []
+            elif kind == sdl.SDL_EVENT_DROP_FILE and event.drop.data:
+                path = Path(event.drop.data.decode())
+                if self._drop_paths is None:
+                    self.drag_and_drop_callback([path])
+                else:
+                    self._drop_paths.append(path)
+            elif kind == sdl.SDL_EVENT_DROP_COMPLETE:
+                paths, self._drop_paths = self._drop_paths, None
+                if paths:
+                    self.drag_and_drop_callback(paths)
+            self.last_ui_active = time.monotonic()
             return
         if sdl.SDL_EVENT_WINDOW_FIRST <= kind <= sdl.SDL_EVENT_WINDOW_LAST:
             if event.window.windowID != sdl.SDL_GetWindowID(self.window):
@@ -237,36 +293,57 @@ class SDL3DockingViewer(PyDockingViewer):
         key = (w, h)
         if key not in self.texture_pool:
             self.texture_pool[key] = GPUTexture(self.impl, w, h,
-                srgb=self.image_color_space == 'srgb')
+                srgb=self.image_color_space == 'srgb', pq=self.image_color_space == 'rec2020_pq')
         self.texture_pool.move_to_end(key)
         if len(self.texture_pool) > capacity:
             _, old = self.texture_pool.popitem(last=False)
             old.release()
         return self.texture_pool[key]
 
+    def update_image(self, *, img_hwc=None):
+        super().update_image(img_hwc=img_hwc)
+        ready = None
+        image = self.image
+        # Preserve the producer stream dependency across the compute/UI threads.
+        if not isinstance(image, np.ndarray) and image.device.type == 'cuda':
+            import torch
+            with torch.cuda.device(image.device):
+                ready = torch.cuda.Event()
+                ready.record()
+        self._published_image = image, self.img_dt, ready
+
     def _main_output_impl(self):
-        image, image_dt = self.image, self.img_dt
+        published = self._published_image
+        image, image_dt, ready = published if published is not None else (self.image, self.img_dt, None)
         if image is not None:
             height, width, _ = image.shape
             texture = self.get_texture(width, height)
-            if image_dt > self.last_upload_dt:
+            if image_dt > self.last_upload_dt or not texture.uploaded:
                 start = time.monotonic()
-                if not isinstance(image, np.ndarray):
-                    image = image.detach().cpu().numpy()
-                if image.dtype.kind in 'ui':
-                    image = image.astype(np.float32) / np.iinfo(image.dtype).max
-                assert image.dtype.kind == 'f'
-                texture.upload(image)
+                native = not isinstance(image, np.ndarray) and texture.upload_torch(image, ready)
+                if not native:
+                    if ready is not None:
+                        ready.synchronize()
+                    if not isinstance(image, np.ndarray):
+                        image = image.detach().cpu().numpy()
+                    if image.dtype.kind in 'ui':
+                        image = image.astype(np.float32) / np.iinfo(image.dtype).max
+                    assert image.dtype.kind == 'f'
+                    texture.upload(image)
                 self.last_upload_dt = image_dt
                 self.tex_upload_ms = (time.monotonic() - start) * 1000
             canvas_width, canvas_height = map(int, imgui.get_content_region_avail())
             self.pan_handler.draw(texture, width, height, canvas_width, canvas_height)
+        if self.impl.last_upload_backend in ('metal-mps', 'vulkan-cuda'):
+            self.tex_upload_ms = self.impl.last_native_upload_ms
         self.draw_overlay(imgui.get_window_draw_list())
 
     def keydown(self, key):
         """Poll an SDL scancode; use keyhit(imgui.Key.*) for pressed events."""
         if isinstance(key, str):
-            key = getattr(sdl, f'SDL_SCANCODE_{key.upper()}')
+            key = getattr(sdl, f'SDL_SCANCODE_{key.upper()}', None)
+            if key is None:
+                return False
         count = ctypes.c_int()
         keys = sdl.SDL_GetKeyboardState(ctypes.byref(count))
         assert 0 <= key < count.value

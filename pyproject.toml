@@ -57,4 +57,5 @@ pyviewer = [
   "custom_ops/*.cpp",
   "custom_ops/*.mm",
   "custom_ops/*.metal",
+  "custom_ops/*.patch",
 ]

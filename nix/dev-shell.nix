@@ -2,6 +2,7 @@
 { pkgs, pythonPackages, packageSet }:
 
 let
+  sdlShell = import ./sdl3-shell.nix { inherit pkgs; };
   python = pythonPackages.python.withPackages (_: [
     packageSet.pyviewer
     pythonPackages.matplotlib
@@ -11,21 +12,11 @@ let
   ]);
   pythonVersion = pkgs.lib.versions.majorMinor pythonPackages.python.version;
 in
-pkgs.mkShell {
-  # Python's withPackages environment does not run PySDL3's setup hook.
-  # Use its Nix-provided libraries instead of downloading into site-packages.
-  SDL_DISABLE_METADATA = "1";
-  SDL_DOWNLOAD_BINARIES = "0";
-  # Runtime doc generation writes __doc__.py into the read-only Nix store.
-  SDL_DOC_GENERATOR = "0";
-  SDL_CHECK_BINARY_VERSION = "0";
-  SDL_CHECK_VERSION = "0";
-
+pkgs.mkShell (sdlShell.env // {
   packages = [
     python
     pkgs.bashInteractive
-    pkgs.ninja
-  ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+  ] ++ sdlShell.packages ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
     pkgs.libglvnd
     pkgs.libGLU
     pkgs.glib
@@ -65,4 +56,4 @@ pkgs.mkShell {
       ln -sfn "python${pythonVersion}" "$pyviewer_root/.nix-python/bin/python"
     fi
   '';
-}
+})

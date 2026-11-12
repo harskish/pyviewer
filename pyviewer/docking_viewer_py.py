@@ -714,7 +714,8 @@ class PyDockingViewer:
             if is_np:
                 img_hwc = np.concatenate([img_hwc, maxval * np.ones((h, w, 1), dtype=img_hwc.dtype)], axis=-1)
             else:
-                img_hwc = torch.cat([img_hwc, self.alpha_ch_torch(h, w, maxval, img_hwc.dtype, img_hwc.device)], dim=2)
+                from .torch_image import pack_rgba
+                img_hwc = pack_rgba(img_hwc)
 
         # Eventually uploaded by UI thread
         self.image = img_hwc

@@ -1,0 +1,314 @@
+--- a/src/gpu/metal/SDL_gpu_metal.m
++++ b/src/gpu/metal/SDL_gpu_metal.m
+@@ -767,6 +767,7 @@
+ static SDL_PropertiesID METAL_GetDeviceProperties(SDL_GPUDevice *device)
+ {
+     MetalRenderer *renderer = (MetalRenderer *)device->driverData;
++    SDL_SetNumberProperty(renderer->props, "pyviewer.interop.version", 1);
+     return renderer->props;
+ }
+ 
+@@ -1527,6 +1528,10 @@
+             SDL_CopyProperties(createinfo->props, container->header.info.props);
+         }
+ 
++        if (SDL_GetBooleanProperty(createinfo->props, "pyviewer.interop", false)) {
++            container->canBeCycled = 0;
++            SDL_SetPointerProperty(createinfo->props, "pyviewer.metal.texture", (__bridge void *)texture->handle);
++        }
+         container->activeTexture = texture;
+         container->textureCapacity = 1;
+         container->textureCount = 1;
+--- a/src/gpu/vulkan/SDL_gpu_vulkan.c
++++ b/src/gpu/vulkan/SDL_gpu_vulkan.c
+@@ -532,6 +532,8 @@
+ 
+     SDL_AtomicInt referenceCount;
+     bool transitioned;
++    VkDeviceMemory interopMemory;
++    VkSemaphore cudaReady, vulkanReady;
+     bool markedForDestroy; // so that defrag doesn't double-free
+     VulkanUniformBuffer *uniformBufferForDefrag;
+ };
+@@ -3165,9 +3167,13 @@
+         buffer->buffer,
+         NULL);
+ 
+-    VULKAN_INTERNAL_RemoveMemoryUsedRegion(
+-        renderer,
+-        buffer->usedRegion);
++    if (buffer->interopMemory) {
++        renderer->vkDestroySemaphore(renderer->logicalDevice, buffer->cudaReady, NULL);
++        renderer->vkDestroySemaphore(renderer->logicalDevice, buffer->vulkanReady, NULL);
++        renderer->vkFreeMemory(renderer->logicalDevice, buffer->interopMemory, NULL);
++    } else {
++        VULKAN_INTERNAL_RemoveMemoryUsedRegion(renderer, buffer->usedRegion);
++    }
+ 
+     SDL_free(buffer);
+ }
+@@ -5071,10 +5077,184 @@
+     SDL_Vulkan_UnloadLibrary();
+ }
+ 
++/* Pyviewer opt-in CUDA interop bridge, compiled against SDL's own types.
++ * No public SDL ABI is changed. The returned transfer buffer is device-local
++ * and must never be mapped or cycled. Ownership of exported FDs passes to CUDA.
++ */
++#ifdef SDL_PLATFORM_LINUX
++#include <unistd.h>
++
++static SDL_GPUTransferBuffer *PYVIEWER_VULKAN_CreateTransfer(
++    void *context, Uint32 size, SDL_PropertiesID output)
++{
++    VulkanRenderer *renderer = (VulkanRenderer *)context;
++    VulkanBuffer *buffer = SDL_calloc(1, sizeof(VulkanBuffer));
++    VulkanBufferContainer *container = NULL;
++    int memoryFD = -1, cudaFD = -1, vulkanFD = -1;
++    PFN_vkGetMemoryFdKHR getMemoryFD = (PFN_vkGetMemoryFdKHR)renderer->vkGetDeviceProcAddr(renderer->logicalDevice, "vkGetMemoryFdKHR");
++    PFN_vkGetSemaphoreFdKHR getSemaphoreFD = (PFN_vkGetSemaphoreFdKHR)renderer->vkGetDeviceProcAddr(renderer->logicalDevice, "vkGetSemaphoreFdKHR");
++    PFN_vkGetPhysicalDeviceProperties2 getProperties = (PFN_vkGetPhysicalDeviceProperties2)vkGetInstanceProcAddr(renderer->instance, "vkGetPhysicalDeviceProperties2");
++    VkExternalMemoryBufferCreateInfo externalBuffer = { VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO };
++    VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
++    VkMemoryRequirements requirements;
++    VkMemoryDedicatedAllocateInfo dedicated = { VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO };
++    VkExportMemoryAllocateInfo exportMemory = { VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO };
++    VkMemoryAllocateInfo allocation = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
++    VkExportSemaphoreCreateInfo exportSemaphore = { VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO };
++    VkSemaphoreCreateInfo semaphore = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
++    VkMemoryGetFdInfoKHR memoryFDInfo = { VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR };
++    VkSemaphoreGetFdInfoKHR semaphoreFDInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR };
++    VkPhysicalDeviceIDProperties ids = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES };
++    VkPhysicalDeviceProperties2 properties = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
++    char uuid[VK_UUID_SIZE * 2 + 1];
++    Uint32 memoryType;
++
++    if (!buffer || !getMemoryFD || !getSemaphoreFD || !getProperties) {
++        SDL_SetError("CUDA interop requires Vulkan 1.1 and external memory/semaphore FD extensions");
++        goto fail;
++    }
++    externalBuffer.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
++    bufferInfo.pNext = &externalBuffer;
++    bufferInfo.size = size;
++    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
++    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++    if (renderer->vkCreateBuffer(renderer->logicalDevice, &bufferInfo, NULL, &buffer->buffer) != VK_SUCCESS) {
++        SDL_SetError("Could not create CUDA-exportable Vulkan buffer");
++        goto fail;
++    }
++    renderer->vkGetBufferMemoryRequirements(renderer->logicalDevice, buffer->buffer, &requirements);
++    for (memoryType = 0; memoryType < renderer->memoryProperties.memoryTypeCount; memoryType++) {
++        if ((requirements.memoryTypeBits & (1u << memoryType)) &&
++            (renderer->memoryProperties.memoryTypes[memoryType].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
++            break;
++        }
++    }
++    if (memoryType == renderer->memoryProperties.memoryTypeCount) {
++        SDL_SetError("No device-local memory type for CUDA interop");
++        goto fail;
++    }
++    dedicated.buffer = buffer->buffer;
++    exportMemory.pNext = &dedicated;
++    exportMemory.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
++    allocation.pNext = &exportMemory;
++    allocation.allocationSize = requirements.size;
++    allocation.memoryTypeIndex = memoryType;
++    if (renderer->vkAllocateMemory(renderer->logicalDevice, &allocation, NULL, &buffer->interopMemory) != VK_SUCCESS ||
++        renderer->vkBindBufferMemory(renderer->logicalDevice, buffer->buffer, buffer->interopMemory, 0) != VK_SUCCESS) {
++        SDL_SetError("Could not allocate/bind CUDA-exportable Vulkan memory");
++        goto fail;
++    }
++    exportSemaphore.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
++    semaphore.pNext = &exportSemaphore;
++    if (renderer->vkCreateSemaphore(renderer->logicalDevice, &semaphore, NULL, &buffer->cudaReady) != VK_SUCCESS ||
++        renderer->vkCreateSemaphore(renderer->logicalDevice, &semaphore, NULL, &buffer->vulkanReady) != VK_SUCCESS) {
++        SDL_SetError("Could not create CUDA/Vulkan external semaphores");
++        goto fail;
++    }
++    memoryFDInfo.memory = buffer->interopMemory;
++    memoryFDInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
++    semaphoreFDInfo.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
++    semaphoreFDInfo.semaphore = buffer->cudaReady;
++    if (getMemoryFD(renderer->logicalDevice, &memoryFDInfo, &memoryFD) != VK_SUCCESS ||
++        getSemaphoreFD(renderer->logicalDevice, &semaphoreFDInfo, &cudaFD) != VK_SUCCESS) {
++        SDL_SetError("Could not export CUDA memory/semaphore FDs");
++        goto fail;
++    }
++    semaphoreFDInfo.semaphore = buffer->vulkanReady;
++    if (getSemaphoreFD(renderer->logicalDevice, &semaphoreFDInfo, &vulkanFD) != VK_SUCCESS) {
++        SDL_SetError("Could not export Vulkan semaphore FD");
++        goto fail;
++    }
++    properties.pNext = &ids;
++    getProperties(renderer->physicalDevice, &properties);
++    for (Uint32 i = 0; i < VK_UUID_SIZE; i++) {
++        SDL_snprintf(uuid + i * 2, 3, "%02x", ids.deviceUUID[i]);
++    }
++    SDL_SetNumberProperty(output, "pyviewer.memory_fd", memoryFD);
++    SDL_SetNumberProperty(output, "pyviewer.cuda_ready_fd", cudaFD);
++    SDL_SetNumberProperty(output, "pyviewer.vulkan_ready_fd", vulkanFD);
++    SDL_SetNumberProperty(output, "pyviewer.allocation_size", (Sint64)requirements.size);
++    SDL_SetStringProperty(output, "pyviewer.device_uuid", uuid);
++
++    buffer->size = size;
++    buffer->type = VULKAN_BUFFER_TYPE_TRANSFER;
++    container = SDL_calloc(1, sizeof(VulkanBufferContainer));
++    container->activeBuffer = buffer;
++    container->buffers = SDL_malloc(sizeof(VulkanBuffer *));
++    container->buffers[0] = buffer;
++    container->bufferCapacity = container->bufferCount = 1;
++    container->dedicated = true;
++    buffer->container = container;
++    // Establish the initial Vulkan -> external ownership handoff. CUDA waits
++    // this first signal just as it waits each later Vulkan texture copy.
++    {
++        VulkanCommandBuffer *command = (VulkanCommandBuffer *)VULKAN_AcquireCommandBuffer((SDL_GPURenderer *)renderer);
++        VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
++        if (!command) goto fail;
++        barrier.srcQueueFamilyIndex = renderer->queueFamilyIndex;
++        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
++        barrier.buffer = buffer->buffer;
++        barrier.size = VK_WHOLE_SIZE;
++        renderer->vkCmdPipelineBarrier(command->commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
++            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 1, &barrier, 0, NULL);
++        command->signalSemaphores[command->signalSemaphoreCount++] = buffer->vulkanReady;
++        VULKAN_INTERNAL_TrackBuffer(command, buffer);
++        if (!VULKAN_Submit((SDL_GPUCommandBuffer *)command)) goto fail;
++    }
++    return (SDL_GPUTransferBuffer *)container;
++
++fail:
++    if (memoryFD >= 0) close(memoryFD);
++    if (cudaFD >= 0) close(cudaFD);
++    if (vulkanFD >= 0) close(vulkanFD);
++    if (container) {
++        SDL_free(container->buffers);
++        SDL_free(container);
++    }
++    if (buffer) {
++        if (buffer->cudaReady) renderer->vkDestroySemaphore(renderer->logicalDevice, buffer->cudaReady, NULL);
++        if (buffer->vulkanReady) renderer->vkDestroySemaphore(renderer->logicalDevice, buffer->vulkanReady, NULL);
++        if (buffer->buffer) renderer->vkDestroyBuffer(renderer->logicalDevice, buffer->buffer, NULL);
++        if (buffer->interopMemory) renderer->vkFreeMemory(renderer->logicalDevice, buffer->interopMemory, NULL);
++        SDL_free(buffer);
++    }
++    return NULL;
++}
++
++static void PYVIEWER_VULKAN_ExternalBarrier(VulkanCommandBuffer *command, VulkanBuffer *buffer, bool acquire)
++{
++    VulkanRenderer *renderer = command->renderer;
++    VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
++    barrier.srcAccessMask = acquire ? 0 : VK_ACCESS_TRANSFER_READ_BIT;
++    barrier.dstAccessMask = acquire ? VK_ACCESS_TRANSFER_READ_BIT : 0;
++    barrier.srcQueueFamilyIndex = acquire ? VK_QUEUE_FAMILY_EXTERNAL : renderer->queueFamilyIndex;
++    barrier.dstQueueFamilyIndex = acquire ? renderer->queueFamilyIndex : VK_QUEUE_FAMILY_EXTERNAL;
++    barrier.buffer = buffer->buffer;
++    barrier.size = VK_WHOLE_SIZE;
++    renderer->vkCmdPipelineBarrier(command->commandBuffer,
++        acquire ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_TRANSFER_BIT,
++        acquire ? VK_PIPELINE_STAGE_TRANSFER_BIT : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
++        0, 0, NULL, 1, &barrier, 0, NULL);
++    if (acquire) {
++        EXPAND_ARRAY_IF_NEEDED(command->waitSemaphores, VkSemaphore, command->waitSemaphoreCount + 1,
++            command->waitSemaphoreCapacity, command->waitSemaphoreCapacity * 2);
++        command->waitSemaphores[command->waitSemaphoreCount++] = buffer->cudaReady;
++        EXPAND_ARRAY_IF_NEEDED(command->signalSemaphores, VkSemaphore, command->signalSemaphoreCount + 1,
++            command->signalSemaphoreCapacity, command->signalSemaphoreCapacity * 2);
++        command->signalSemaphores[command->signalSemaphoreCount++] = buffer->vulkanReady;
++    }
++}
++#endif
++
+ static SDL_PropertiesID VULKAN_GetDeviceProperties(
+     SDL_GPUDevice *device)
+ {
+     VulkanRenderer *renderer = (VulkanRenderer *)device->driverData;
++#ifdef SDL_PLATFORM_LINUX
++    SDL_SetNumberProperty(renderer->props, "pyviewer.interop.version", 1);
++    SDL_SetPointerProperty(renderer->props, "pyviewer.vulkan.context", renderer);
++    SDL_SetPointerProperty(renderer->props, "pyviewer.vulkan.create_transfer", (void *)PYVIEWER_VULKAN_CreateTransfer);
++#endif
+     return renderer->props;
+ }
+ 
+@@ -8828,6 +9008,10 @@
+             transferBufferContainer);
+     }
+ 
++    if (transferBufferContainer->activeBuffer->interopMemory) {
++        SDL_SetError("Pyviewer CUDA transfer buffers are device-local and cannot be CPU mapped");
++        return NULL;
++    }
+     Uint8 *bufferPointer =
+         transferBufferContainer->activeBuffer->usedRegion->allocation->mapPointer +
+         transferBufferContainer->activeBuffer->usedRegion->resourceOffset;
+@@ -8866,7 +9050,13 @@
+ 
+     SDL_LockRWLockForReading(renderer->defragLock);
+ 
+-    // Note that the transfer buffer does not need a barrier, as it is synced by the client
++#ifdef SDL_PLATFORM_LINUX
++    if (transferBufferContainer->activeBuffer->interopMemory) {
++        SDL_assert(!cycle);
++        PYVIEWER_VULKAN_ExternalBarrier(vulkanCommandBuffer, transferBufferContainer->activeBuffer, true);
++    }
++#endif
++    // Ordinary host-visible transfer buffers are synced by the client.
+     vulkanTextureSubresource = VULKAN_INTERNAL_PrepareTextureSubresourceForWrite(
+         renderer,
+         vulkanCommandBuffer,
+@@ -8904,6 +9094,11 @@
+         VULKAN_TEXTURE_USAGE_MODE_COPY_DESTINATION,
+         vulkanTextureSubresource);
+ 
++#ifdef SDL_PLATFORM_LINUX
++    if (transferBufferContainer->activeBuffer->interopMemory) {
++        PYVIEWER_VULKAN_ExternalBarrier(vulkanCommandBuffer, transferBufferContainer->activeBuffer, false);
++    }
++#endif
+     VULKAN_INTERNAL_TrackBuffer(vulkanCommandBuffer, transferBufferContainer->activeBuffer);
+     VULKAN_INTERNAL_TrackTexture(vulkanCommandBuffer, vulkanTextureSubresource->parent);
+     VULKAN_INTERNAL_TrackTextureTransfer(vulkanCommandBuffer, vulkanTextureSubresource->parent);
+@@ -10807,7 +11002,7 @@
+     VkPresentInfoKHR presentInfo;
+     VulkanPresentData *presentData;
+     VkResult vulkanResult, presentResult = VK_SUCCESS;
+-    VkPipelineStageFlags waitStages[MAX_PRESENT_COUNT];
++    VkPipelineStageFlags *waitStages = SDL_stack_alloc(VkPipelineStageFlags, SDL_max(1, vulkanCommandBuffer->waitSemaphoreCount));
+     Uint32 swapchainImageIndex;
+     VulkanTextureSubresource *swapchainTextureSubresource;
+     VulkanMemorySubAllocator *allocator;
+@@ -10818,8 +11013,8 @@
+     SDL_LockMutex(renderer->submitLock);
+ 
+     // FIXME: Can this just be permanent?
+-    for (Uint32 i = 0; i < MAX_PRESENT_COUNT; i += 1) {
+-        waitStages[i] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
++    for (Uint32 i = 0; i < vulkanCommandBuffer->waitSemaphoreCount; i += 1) {
++        waitStages[i] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+     }
+ 
+     for (Uint32 j = 0; j < vulkanCommandBuffer->presentDataCount; j += 1) {
+@@ -10847,11 +11042,13 @@
+ 
+     if (!VULKAN_INTERNAL_EndCommandBuffer(renderer, vulkanCommandBuffer)) {
+         SDL_UnlockMutex(renderer->submitLock);
++        SDL_stack_free(waitStages);
+         return false;
+     }
+ 
+     vulkanCommandBuffer->inFlightFence = VULKAN_INTERNAL_AcquireFenceFromPool(renderer);
+     if (vulkanCommandBuffer->inFlightFence == NULL) {
++        SDL_stack_free(waitStages);
+         SDL_UnlockMutex(renderer->submitLock);
+         return false;
+     }
+@@ -10875,6 +11072,7 @@
+         1,
+         &submitInfo,
+         vulkanCommandBuffer->inFlightFence->fence);
++    SDL_stack_free(waitStages);
+ 
+     if (vulkanResult != VK_SUCCESS) {
+         SDL_UnlockMutex(renderer->submitLock);

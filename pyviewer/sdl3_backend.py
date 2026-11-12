@@ -7,11 +7,14 @@ https://github.com/pthom/imgui_bundle/blob/v1.92.5/bindings/imgui_bundle/python_
 
 import ctypes
 import math
+import os
 
 from .import_order import prepare_imgui_import
 
 prepare_imgui_import()
 
+# This backend owns its event loop; PySDL3 must not call __main__.main at exit.
+os.environ.setdefault("SDL_MAIN_HANDLED", "1")
 import sdl3 as sdl
 from imgui_bundle import imgui
 from imgui_bundle.python_backends.sdl3_backend import SDL3Renderer as UpstreamSDL3Renderer
@@ -38,13 +41,14 @@ def dpi_scales(window_size, pixel_size, display_scale):
 
 
 def wheel_delta(event):
-    """Normalize flipped wheels, retaining fractional trackpad motion.
+    """Preserve OS scroll direction and fractional trackpad motion.
 
-    SDL's horizontal axis points right; ImGui's positive horizontal wheel points
-    left. Vertical positive means scrolling up in both APIs.
+    SDL's deltas already include the user's natural-scrolling preference.
+    SDL_MOUSEWHEEL_FLIPPED describes that preference; reversing the deltas again
+    inverts macOS trackpad zoom. Match ImGui's SDL3 backend: only negate X to
+    convert SDL's right-positive horizontal axis to ImGui's left-positive axis.
     """
-    direction = -1 if event.wheel.direction == sdl.SDL_MOUSEWHEEL_FLIPPED else 1
-    return -float(event.wheel.x) * direction, float(event.wheel.y) * direction
+    return -float(event.wheel.x), float(event.wheel.y)
 
 
 class SDL3Platform:

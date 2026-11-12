@@ -22,6 +22,13 @@ struct main0_in
 };
 
 static inline __attribute__((always_inline))
+float3 pq_to_linear(thread const float3& c)
+{
+    float3 p = powr(fast::clamp(c, float3(0.0), float3(1.0)), float3(0.0126833133399486541748046875));
+    return powr(fast::max(p - float3(0.8359375), float3(0.0)) / fast::max(float3(18.8515625) - (p * 18.6875), float3(9.9999999747524270787835121154785e-07)), float3(6.277394771575927734375)) * 10000.0;
+}
+
+static inline __attribute__((always_inline))
 float3 srgb_to_linear(thread const float3& c)
 {
     return select(c / float3(12.9200000762939453125), powr(fast::max((c + float3(0.054999999701976776123046875)) / float3(1.05499994754791259765625), float3(0.0)), float3(2.400000095367431640625)), c > float3(0.040449999272823333740234375));
@@ -31,13 +38,24 @@ fragment main0_out main0(main0_in in [[stage_in]], constant TextureInfo& info [[
 {
     main0_out out = {};
     float4 texel = image_texture.sample(image_textureSmplr, in.frag_uv);
-    if (info.options.x > 0.5)
+    if (info.options.x > 1.5)
     {
         float3 param = texel.xyz;
-        float3 _69 = srgb_to_linear(param);
-        texel.x = _69.x;
-        texel.y = _69.y;
-        texel.z = _69.z;
+        float3 _123 = (float3x3(float3(1.66049098968505859375, -0.12454999983310699462890625, -0.01815100014209747314453125), float3(-0.5876410007476806640625, 1.1328999996185302734375, -0.100579001009464263916015625), float3(-0.072849996387958526611328125, -0.00834899954497814178466796875, 1.11872994899749755859375)) * pq_to_linear(param)) / float3(info.options.y);
+        texel.x = _123.x;
+        texel.y = _123.y;
+        texel.z = _123.z;
+    }
+    else
+    {
+        if (info.options.x > 0.5)
+        {
+            float3 param_1 = texel.xyz;
+            float3 _142 = srgb_to_linear(param_1);
+            texel.x = _142.x;
+            texel.y = _142.y;
+            texel.z = _142.z;
+        }
     }
     out.out_color = in.frag_color * texel;
     return out;
