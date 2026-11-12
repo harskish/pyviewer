@@ -16,6 +16,8 @@ pkgs.mkShell {
   # Use its Nix-provided libraries instead of downloading into site-packages.
   SDL_DISABLE_METADATA = "1";
   SDL_DOWNLOAD_BINARIES = "0";
+  # Runtime doc generation writes __doc__.py into the read-only Nix store.
+  SDL_DOC_GENERATOR = "0";
   SDL_CHECK_BINARY_VERSION = "0";
   SDL_CHECK_VERSION = "0";
 
