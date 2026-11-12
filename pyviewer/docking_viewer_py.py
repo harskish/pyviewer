@@ -26,6 +26,7 @@ from .toolbar_viewer import PannableArea
 from .utils import normalize_image_data
 from .imgui_themes import theme_deep_dark
 from .easy_dict import EasyDict
+from .trackpad import install_trackpad_patches
 
 # Torch import is slow
 # => don't import unless already imported by calling code
@@ -186,6 +187,7 @@ class PyDockingViewer:
         # Create window + imgui backend
         self.window = self.impl_glfw_init()
         imgui.create_context()
+        self.scroll_patch = install_trackpad_patches()
         self._setup_imgui_context(name)
         self.setup_theme()  # user-overridable
         self.scale_style_sizes()

@@ -26,6 +26,7 @@ from imgui_bundle import imgui, implot
 from imgui_bundle.python_backends.glfw_backend import GlfwRenderer
 
 from .imgui_themes import *
+from .trackpad import install_trackpad_patches
 
 #from .utils import normalize_image_data
 
@@ -489,6 +490,7 @@ class viewer:
         self._imgui_context = imgui.create_context()
         self._implot_context = implot.create_context()
         implot.set_imgui_context(self._imgui_context)
+        self.scroll_patch = install_trackpad_patches()
 
         # GlfwRenderer owns the ImGui platform and OpenGL backends below.
         # Initializing the native GLFW backend here breaks Wayland windows.
