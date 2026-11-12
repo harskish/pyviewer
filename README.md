@@ -20,6 +20,43 @@ siv.plot(np.sin(2*np.pi*np.linspace(0, 1, 10_000)))
 ### toolbar_viewer.py
 A viewer that shows ImGui UI elemets on the left, and a large image on the right. Runs in the main process, but supports visualizing torch tensors directly from GPU memory (unlike single_image_viewer).
 
+### docking_viewer_sdl3.py
+
+`SDL3DockingViewer` provides the dockable viewer UI with SDL3 HDR presentation.
+Install with `pip install -e '.[sdl3,custom-ops]'`. macOS defaults to Metal
+SDL_Renderer with extended-linear HDR. Linux defaults to SDL_Renderer’s GPU
+driver over Vulkan, also with extended-linear HDR. Windows defaults to the
+Direct3D 12 renderer. SDL_Renderer is the only viewer rendering path; HDR
+output is extended-linear, and Rec.2020/PQ input is still supported.
+
+On macOS, FP16/FP32 HWC RGBA MPS tensors are sampled directly through Metal
+texture views in the pan/zoom draw. Aligned tensors need no image copy or CPU
+readback. Unsupported strides/alignment require a GPU-only repack. Publish a
+finished tensor and keep its contents unchanged while displayed; the viewer
+retains its storage through GPU completion. Ordinary CPU arrays still upload
+through SDL. The native extension compiles on first use with Torch, Ninja and
+Xcode command-line tools, using public SDL Metal hooks. For smooth macOS
+trackpad momentum, use stock SDL 3.4.14 or later; the Nix shell supplies 3.4.20
+when its nixpkgs version predates that fix.
+
+Linux CUDA/Vulkan interop retains the SDL_GPU external-memory bridge in
+`custom_ops/sdl3-interop.patch`. SDL_Renderer borrows the native GPU texture;
+the existing GPU transfers and semaphores remain, with no CPU image upload.
+Linux requires a compositor/driver advertising extended-linear Vulkan HDR
+(`VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT`); explicit `hdr='linear'` fails
+if unavailable, while `hdr='auto'` can select SDR. Choose `renderer_driver='gpu'`
+explicitly to use this transport on another platform, or `'vulkan'` for the
+direct Vulkan renderer (currently CPU uploads). `nix/sdl3-shell.nix` provides stock SDL on macOS
+and patched SDL on Linux; consumers can import its `packages` and `env`.
+Set its `gpuInterop=true` argument to enable the GPU upload bridge on macOS too.
+`gpu_interop='required'` rejects a missing native path, `'off'` forces CPU
+uploads, and `'auto'` falls back with a warning if native setup fails.
+`impl.last_upload_backend` reports `metal-mps-view`, `metal-mps`,
+`vulkan-cuda`, or `cpu`; `last_upload_copied` on SDL_Renderer reports native
+GPU transfers or alignment/layout repacking. `image_color_space` accepts linear Rec.709 (default),
+sRGB, or Rec.2020/PQ. The image shader decodes only when requested; the ISP's
+precision is independent of the final display conversion.
+
 ### tensor_viewer.py
 
 A viewer for large, multidimensional PyTorch tensors. Runs in a separate thread

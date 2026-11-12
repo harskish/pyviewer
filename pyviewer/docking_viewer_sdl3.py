@@ -1,6 +1,6 @@
-"""SDL_GPU + imgui_bundle prototype with HDR presentation.
+"""SDL3 + imgui_bundle with Metal/Vulkan HDR presentation.
 
-Uses Vulkan on Linux/Windows and Metal on macOS, with stock PySDL3 bindings.
+Uses Vulkan on Linux, Metal on macOS and D3D12 on Windows through SDL_Renderer.
 Images are linear Rec.709 by default; Rec.2020/PQ input is also supported.
 GPU tensors use native MPS/Metal or CUDA/Vulkan interop when available.
 """
@@ -14,7 +14,7 @@ import numpy as np
 
 from .docking_viewer_py import PyDockingViewer, dockable  # re-export the shared decorator
 from .sdl3_backend import window_sizes
-from .sdl_gpu_renderer import SDLGPUImguiRenderer, GPUTexture, checked
+from .sdl_renderer import SDLRendererImguiRenderer, RendererTexture, create_renderer
 from .utils import PannableArea
 
 import sdl3 as sdl
@@ -61,7 +61,7 @@ class SDL3PannableArea(PannableArea):
         hi = tuple(self.output_pos_tl + (canvas_width, canvas_height))
         draw_list.push_clip_rect(lo, hi, True)
         draw_list.add_rect_filled(lo, hi, imgui.color_convert_float4_to_u32(self.clear_color))
-        # Existing numerical pan/zoom transforms; rasterization is now SDL_GPU.
+        # Existing numerical pan/zoom transforms; rasterization uses SDL3.
         uv = np.array([[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]])
         points = uv @ self.uv_to_screen_xform().T
         draw_list.add_image_quad(texture.ref, *(tuple(p[:2]) for p in points))
@@ -79,39 +79,44 @@ class SDL3PannableArea(PannableArea):
 
 
 class SDL3DockingViewer(PyDockingViewer):
-    """Same dockable UI API, with SDL_GPU window/events and HDR presentation.
+    """Same dockable UI API, with SDL3 window/events and HDR presentation.
 
     keydown accepts an SDL scancode or a name such as 'A' or 'ESCAPE'.
-    hdr: 'auto' prefers linear HDR then PQ then SDR; True requires HDR;
-    'linear'/'pq' require that mode, False/'sdr' selects SDR explicitly.
+    hdr: 'auto' prefers extended-linear HDR then SDR; True/'linear' requires
+    extended-linear HDR, False/'sdr' selects SDR explicitly.
     image_color_space: 'linear' (1.0 = SDR white), 'srgb', or 'rec2020_pq'
     (absolute ST 2084 encoded Rec.2020). Applies to floats and integers alike.
-    sdr_white_nits: reference white for PQ output. Linear output uses SDL's
+    sdr_white_nits: reference white for PQ input. Linear output uses SDL's
     reported SDR-white scale. Display capability is exposed through hdr_info.
-    gpu_interop: 'auto' uses native GPU copies when available (CPU fallback with
+    renderer_driver: SDL_Renderer driver; defaults to Metal on macOS and the
+    SDL_GPU-backed renderer on Linux to retain CUDA/Vulkan interop, D3D12 on Windows.
+    gpu_interop: 'auto' uses native GPU interop when available (CPU fallback with
     a warning), 'required' rejects unavailable GPU interop, 'off' uses CPU uploads.
     """
 
     def __init__(self, name, *, hdr='auto', image_color_space='linear', sdr_white_nits=203.0,
-                 gpu_driver=None, debug_gpu=False, normalize=False, gpu_interop='auto', **kwargs):
+                 gpu_driver=None, debug_gpu=False, normalize=False, gpu_interop='auto',
+                 renderer_driver=None, **kwargs):
         assert 'context_creation_api' not in kwargs, 'GLFW context_creation_api is not an SDL option'
-        assert hdr in ('auto', 'linear', 'pq', 'sdr', True, False)
+        assert hdr in ('auto', 'linear', 'sdr', True, False), 'SDL_Renderer HDR output must be extended-linear'
         assert image_color_space in ('linear', 'srgb', 'rec2020_pq')
         assert sdr_white_nits > 0
         assert gpu_interop in ('auto', 'required', 'off')
+        self.sdl_renderer = None
         self.gpu_interop = gpu_interop
         self._published_image = None
         self._hdr_request = hdr
         self.image_color_space = image_color_space
         self.sdr_white_nits = sdr_white_nits
         self.gpu_driver = gpu_driver or ('metal' if sys.platform == 'darwin' else 'vulkan')
-        assert self.gpu_driver in ('metal', 'vulkan'), 'Bundled shaders target Metal and Vulkan'
+        self.renderer_driver = renderer_driver or (
+            'metal' if sys.platform == 'darwin' else 'direct3d12' if sys.platform == 'win32' else 'gpu')
+        assert self.gpu_driver in ('metal', 'vulkan'), 'Native image interop targets Metal and Vulkan'
         self._debug_gpu = debug_gpu
         self._requested_normalize = normalize
         self._content_scale = 1.0
         self._should_close = False
         self.gpu_device = None
-        self._window_claimed = False
         self.hdr_info = {}
         self._drop_paths = None
         try:
@@ -135,6 +140,10 @@ class SDL3DockingViewer(PyDockingViewer):
         return SDL3PannableArea(force_mouse_capture=True)
 
     def _create_window(self):
+        if sys.platform == 'darwin':
+            # SDL requires this hint before initializing Cocoa application state.
+            # Keep macOS's native trackpad inertia, matching the GLFW viewer.
+            sdl.SDL_SetHint(sdl.SDL_HINT_MAC_SCROLL_MOMENTUM, b'1')
         assert sdl.SDL_Init(sdl.SDL_INIT_VIDEO | sdl.SDL_INIT_EVENTS), sdl.SDL_GetError()
         try:
             flags = sdl.SDL_WINDOW_RESIZABLE | sdl.SDL_WINDOW_HIGH_PIXEL_DENSITY
@@ -142,71 +151,29 @@ class SDL3DockingViewer(PyDockingViewer):
                 flags |= sdl.SDL_WINDOW_HIDDEN
             self.window = sdl.SDL_CreateWindow(self._window_title.encode(), *self._windowed_size, flags)
             assert self.window, sdl.SDL_GetError()
-            formats = sdl.SDL_GPU_SHADERFORMAT_SPIRV | sdl.SDL_GPU_SHADERFORMAT_MSL
-            self.gpu_device = self._create_gpu_device(formats)
-            checked(sdl.SDL_ClaimWindowForGPUDevice(self.gpu_device, self.window))
-            self._window_claimed = True
-            self._configure_swapchain()
+            if self.renderer_driver == 'gpu':
+                from .sdl_torch_interop import create_device
+                self.gpu_device = create_device(self.gpu_driver, self._debug_gpu, self.gpu_interop)
+            self.sdl_renderer, self.hdr_mode = create_renderer(
+                self.window, self.renderer_driver, self._hdr_request, self._swap_interval,
+                gpu_device=self.gpu_device)
+            self.hdr = self.hdr_mode != 'sdr'
+            self.normalize = self._requested_normalize if not self.hdr else False
+            self.supported_hdr_modes = {self.hdr_mode: True}
             self._update_hdr_info()
+            print(f'SDL_Renderer: {self.renderer_driver}, presentation={self.hdr_mode}')
             return self.window
         except BaseException:
             self._destroy_platform()
             raise
 
-    def _create_gpu_device(self, formats):
-        # CUDA external-memory handles must be opted into at Vulkan device
-        # creation, including when Torch is imported after the viewer opens.
-        if self.gpu_driver == 'vulkan' and sys.platform == 'linux' and self.gpu_interop != 'off':
-            props = sdl.SDL_CreateProperties()
-            extensions = (ctypes.c_char_p * 2)(b'VK_KHR_external_memory_fd', b'VK_KHR_external_semaphore_fd')
-            options = sdl.SDL_GPUVulkanOptions(vulkan_api_version=(1 << 22) | (1 << 12),
-                device_extension_count=2, device_extension_names=extensions)
-            try:
-                checked(sdl.SDL_SetStringProperty(props, sdl.SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING, b'vulkan'))
-                checked(sdl.SDL_SetBooleanProperty(props, sdl.SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, self._debug_gpu))
-                checked(sdl.SDL_SetBooleanProperty(props, sdl.SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, True))
-                checked(sdl.SDL_SetPointerProperty(props, sdl.SDL_PROP_GPU_DEVICE_CREATE_VULKAN_OPTIONS_POINTER, ctypes.addressof(options)))
-                device = sdl.SDL_CreateGPUDeviceWithProperties(props)
-                if device:
-                    return device
-                if self.gpu_interop == 'required':
-                    return checked(device)
-            finally:
-                sdl.SDL_DestroyProperties(props)
-        return checked(sdl.SDL_CreateGPUDevice(formats, self._debug_gpu, self.gpu_driver.encode()))
-
     def _create_renderer(self):
-        renderer = SDLGPUImguiRenderer(self.window, self.gpu_device, mode=self.hdr_mode,
+        renderer = SDLRendererImguiRenderer(self.window, self.sdl_renderer, mode=self.hdr_mode,
+            gpu_device=self.gpu_device,
             sdr_white_nits=self.sdr_white_nits, on_content_scale=self._set_content_scale,
             on_wheel=self.pan_handler.consume_wheel, gpu_interop=self.gpu_interop)
         renderer.sc_rgb_white = self.hdr_info['sdr_white_level']
         return renderer
-
-    def _configure_swapchain(self):
-        compositions = {'linear': sdl.SDL_GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR,
-                        'pq': sdl.SDL_GPU_SWAPCHAINCOMPOSITION_HDR10_ST2084,
-                        'sdr': sdl.SDL_GPU_SWAPCHAINCOMPOSITION_SDR}
-        request = self._hdr_request
-        candidates = (['linear', 'pq', 'sdr'] if request == 'auto' else
-                      ['linear', 'pq'] if request is True else
-                      ['sdr'] if request is False else [request])
-        supported = {name: bool(sdl.SDL_WindowSupportsGPUSwapchainComposition(
-            self.gpu_device, self.window, composition)) for name, composition in compositions.items()}
-        choices = [mode for mode in candidates if supported[mode]]
-        assert choices, f'Requested HDR mode {request!r} is unsupported: {supported}'
-        self.hdr_mode = choices[0]
-        self.hdr = self.hdr_mode != 'sdr'
-        self.normalize = self._requested_normalize if not self.hdr else False
-        present = sdl.SDL_GPU_PRESENTMODE_VSYNC
-        if self._swap_interval == 0:
-            for option in (sdl.SDL_GPU_PRESENTMODE_IMMEDIATE, sdl.SDL_GPU_PRESENTMODE_MAILBOX):
-                if sdl.SDL_WindowSupportsGPUPresentMode(self.gpu_device, self.window, option):
-                    present = option
-                    break
-        checked(sdl.SDL_SetGPUSwapchainParameters(self.gpu_device, self.window,
-                                                compositions[self.hdr_mode], present))
-        self.supported_hdr_modes = supported
-        print(f'SDL_GPU: {self.gpu_driver}, presentation={self.hdr_mode}, supported={supported}')
 
     def _set_content_scale(self, scale):
         self._content_scale = scale
@@ -217,11 +184,11 @@ class SDL3DockingViewer(PyDockingViewer):
         pass
 
     def _update_hdr_info(self):
-        props = sdl.SDL_GetWindowProperties(self.window)
+        props = sdl.SDL_GetRendererProperties(self.sdl_renderer)
         self.hdr_info = {
-            'enabled': bool(sdl.SDL_GetBooleanProperty(props, sdl.SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, False)),
-            'sdr_white_level': float(sdl.SDL_GetFloatProperty(props, sdl.SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, 1.0)),
-            'headroom': float(sdl.SDL_GetFloatProperty(props, sdl.SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0)),
+            'enabled': bool(sdl.SDL_GetBooleanProperty(props, sdl.SDL_PROP_RENDERER_HDR_ENABLED_BOOLEAN, False)),
+            'sdr_white_level': float(sdl.SDL_GetFloatProperty(props, sdl.SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, 1.0)),
+            'headroom': float(sdl.SDL_GetFloatProperty(props, sdl.SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0)),
         }
         if self.impl is not None:
             self.impl.sc_rgb_white = self.hdr_info['sdr_white_level']
@@ -282,17 +249,17 @@ class SDL3DockingViewer(PyDockingViewer):
         assert sdl.SDL_SetWindowTitle(self.window, self._window_title.encode()), sdl.SDL_GetError()
 
     def _swap_buffers(self):
-        # SDL_GPU submits and presents together in renderer.render().
+        # The SDL renderer submits and presents in render().
         pass
 
     def _clear_frame(self):
-        # SDL_GPU render passes own clearing; no OpenGL context is created.
+        # The SDL renderer owns clearing; no OpenGL context is created.
         pass
 
     def get_texture(self, w, h, capacity=10):
         key = (w, h)
         if key not in self.texture_pool:
-            self.texture_pool[key] = GPUTexture(self.impl, w, h,
+            self.texture_pool[key] = RendererTexture(self.impl, w, h,
                 srgb=self.image_color_space == 'srgb', pq=self.image_color_space == 'rec2020_pq')
         self.texture_pool.move_to_end(key)
         if len(self.texture_pool) > capacity:
@@ -334,7 +301,7 @@ class SDL3DockingViewer(PyDockingViewer):
                 self.tex_upload_ms = (time.monotonic() - start) * 1000
             canvas_width, canvas_height = map(int, imgui.get_content_region_avail())
             self.pan_handler.draw(texture, width, height, canvas_width, canvas_height)
-        if self.impl.last_upload_backend in ('metal-mps', 'vulkan-cuda'):
+        if self.impl.last_upload_backend in ('metal-mps', 'metal-mps-view', 'vulkan-cuda'):
             self.tex_upload_ms = self.impl.last_native_upload_ms
         self.draw_overlay(imgui.get_window_draw_list())
 
@@ -370,9 +337,9 @@ class SDL3DockingViewer(PyDockingViewer):
     def _destroy_platform(self):
         if imgui.get_current_context():
             imgui.destroy_context()
-        if self._window_claimed:
-            sdl.SDL_ReleaseWindowFromGPUDevice(self.gpu_device, self.window)
-            self._window_claimed = False
+        if self.sdl_renderer:
+            sdl.SDL_DestroyRenderer(self.sdl_renderer)
+            self.sdl_renderer = None
         if self.gpu_device:
             sdl.SDL_DestroyGPUDevice(self.gpu_device)
             self.gpu_device = None

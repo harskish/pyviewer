@@ -1,7 +1,8 @@
-"""Native MPS/Metal and CUDA/Vulkan image copies, loaded only for GPU tensors.
+"""Native GPU image interop, loaded only for GPU tensors.
 
-Requires the SDL bridge in custom_ops/sdl3-interop.patch. SDL properties expose
-native resources through that versioned bridge, never through private offsets.
+SDL_Renderer uses public Metal hooks and MPS texture views on stock SDL.
+The SDL_Renderer GPU driver uses the bridge in custom_ops/sdl3-interop.patch. Native
+resources use public hooks or that versioned bridge, never private offsets.
 """
 import ctypes
 from functools import lru_cache
@@ -13,17 +14,21 @@ os.environ.setdefault("SDL_MAIN_HANDLED", "1")
 import sdl3 as sdl
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=3)
 def extension(driver):
     from torch.utils.cpp_extension import load
 
     root = Path(__file__).with_name('custom_ops')
-    metal = driver == 'metal'
+    metal = driver in ('metal', 'metal-renderer')
+    name = ('pyviewer_mps_sdl_renderer' if driver == 'metal-renderer' else
+            'pyviewer_mps_sdl' if metal else 'pyviewer_cuda_vulkan')
+    source = ('metal_sdl_renderer.mm' if driver == 'metal-renderer' else
+              'metal_sdl_interop.mm' if metal else 'cuda_vulkan_interop.cpp')
     return load(
-        name='pyviewer_mps_sdl' if metal else 'pyviewer_cuda_vulkan',
-        sources=[str(root / ('metal_sdl_interop.mm' if metal else 'cuda_vulkan_interop.cpp'))],
+        name=name,
+        sources=[str(root / source)],
         extra_cflags=['-O3', '-std=c++17'] + (['-fobjc-arc'] if metal else []),
-        extra_ldflags=['-framework', 'Metal', '-framework', 'Foundation'] if metal else [],
+        extra_ldflags=['-framework', 'Metal', '-framework', 'Foundation', '-framework', 'QuartzCore'] if metal else [],
         with_cuda=not metal,
         verbose=False,
     )
@@ -32,6 +37,84 @@ def extension(driver):
 def bridge_version(device):
     props = sdl.SDL_GetGPUDeviceProperties(device)
     return sdl.SDL_GetNumberProperty(props, b'pyviewer.interop.version', 0)
+
+
+def checked(value):
+    if not value:
+        raise RuntimeError(sdl.SDL_GetError().decode())
+    return value
+
+
+def create_device(driver, debug, interop):
+    """Create the device borrowed by SDL_Renderer's GPU driver."""
+    formats = sdl.SDL_GPU_SHADERFORMAT_SPIRV | sdl.SDL_GPU_SHADERFORMAT_MSL
+    if driver == 'vulkan' and sys.platform == 'linux' and interop != 'off':
+        props = checked(sdl.SDL_CreateProperties())
+        extensions = (ctypes.c_char_p * 2)(b'VK_KHR_external_memory_fd', b'VK_KHR_external_semaphore_fd')
+        options = sdl.SDL_GPUVulkanOptions(vulkan_api_version=(1 << 22) | (1 << 12),
+            device_extension_count=2, device_extension_names=extensions)
+        try:
+            checked(sdl.SDL_SetStringProperty(props, sdl.SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING, driver.encode()))
+            checked(sdl.SDL_SetBooleanProperty(props, sdl.SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, debug))
+            checked(sdl.SDL_SetBooleanProperty(props, sdl.SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, True))
+            checked(sdl.SDL_SetPointerProperty(props, sdl.SDL_PROP_GPU_DEVICE_CREATE_VULKAN_OPTIONS_POINTER, ctypes.addressof(options)))
+            device = sdl.SDL_CreateGPUDeviceWithProperties(props)
+            if device:
+                return device
+            if interop == 'required':
+                return checked(device)
+        finally:
+            sdl.SDL_DestroyProperties(props)
+    return checked(sdl.SDL_CreateGPUDevice(formats, debug, driver.encode()))
+
+
+class InteropTexture:
+    """FP16 upload resource borrowed by an SDL_Texture; performs no rendering."""
+    def __init__(self, renderer, width, height):
+        self.renderer = renderer
+        self.width, self.height = width, height
+        self.cuda_transfer = None
+        self.texture = None
+        self.native_metal_texture = None
+        info = sdl.SDL_GPUTextureCreateInfo(type=sdl.SDL_GPU_TEXTURETYPE_2D,
+            format=sdl.SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT, usage=sdl.SDL_GPU_TEXTUREUSAGE_SAMPLER,
+            width=width, height=height, layer_count_or_depth=1, num_levels=1,
+            sample_count=sdl.SDL_GPU_SAMPLECOUNT_1)
+        props = checked(sdl.SDL_CreateProperties())
+        try:
+            checked(sdl.SDL_SetBooleanProperty(props, b'pyviewer.interop', True))
+            info.props = props
+            self.texture = checked(sdl.SDL_CreateGPUTexture(renderer.device, ctypes.byref(info)))
+            self.native_metal_texture = sdl.SDL_GetPointerProperty(props, b'pyviewer.metal.texture', None)
+        finally:
+            sdl.SDL_DestroyProperties(props)
+
+    def upload(self, tensor, ready=None):
+        self.renderer.wait_native()
+        backend = upload(self, tensor, ready)
+        if self.cuda_transfer is not None:
+            command = checked(sdl.SDL_AcquireGPUCommandBuffer(self.renderer.device))
+            copy = sdl.SDL_BeginGPUCopyPass(command)
+            if not copy:
+                sdl.SDL_CancelGPUCommandBuffer(command)
+                checked(copy)
+            source = sdl.SDL_GPUTextureTransferInfo(transfer_buffer=self.cuda_transfer.transfer,
+                pixels_per_row=self.width, rows_per_layer=self.height)
+            dest = sdl.SDL_GPUTextureRegion(texture=self.texture, w=self.width, h=self.height, d=1)
+            sdl.SDL_UploadToGPUTexture(copy, ctypes.byref(source), ctypes.byref(dest), False)
+            sdl.SDL_EndGPUCopyPass(copy)
+            checked(sdl.SDL_SubmitGPUCommandBuffer(command))
+        return backend
+
+    def release(self):
+        if self.texture:
+            self.renderer.wait_native()
+            if self.cuda_transfer is not None:
+                self.cuda_transfer.release()
+                self.cuda_transfer = None
+            sdl.SDL_ReleaseGPUTexture(self.renderer.device, self.texture)
+            self.texture = None
+            self.native_metal_texture = None
 
 
 def supports_tensor(renderer, tensor):
