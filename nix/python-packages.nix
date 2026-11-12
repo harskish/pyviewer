@@ -98,17 +98,44 @@ let
 
     buildInputs = lib.optionals stdenv.hostPlatform.isLinux [
       stdenv.cc.cc.lib
-      pkgs.glfw
+      pkgs.dbus
       pkgs.libx11
       pkgs.libxext
       pkgs.zlib
     ];
 
-    # Use the same GLFW as pythonPackages.glfw instead of the wheel's bundled 3.3.
+    # GLFW opens these libraries with dlopen, so autoPatchelf cannot infer them
+    # from DT_NEEDED. Keep HDR usable outside the development shell as well.
+    runtimeDependencies = lib.optionals stdenv.hostPlatform.isLinux (map lib.getLib [
+      pkgs.libglvnd
+      pkgs.wayland
+      pkgs.libxkbcommon
+      pkgs.libdecor
+      pkgs.libx11
+      pkgs.libxcursor
+      pkgs.libxi
+      pkgs.libxinerama
+      pkgs.libxrandr
+      pkgs.libxrender
+      pkgs.libxext
+      pkgs.libxcb
+      pkgs.dbus
+    ]);
+
+    # Install HDR GLFW before the store is sealed. Both the native extension
+    # and pyGLFW must load this same library. Bundled binaries are x86-64 Linux
+    # and ARM64 macOS only; Intel macOS keeps the wheel's stock GLFW.
     postInstall = lib.optionalString stdenv.hostPlatform.isLinux ''
       bundleDir="$out/${pythonPackages.python.sitePackages}/imgui_bundle"
       rm "$bundleDir"/libglfw.so*
-      ln -s ${pkgs.glfw}/lib/libglfw.so.3 "$bundleDir/libglfw.so.3"
+      cp ${../pyviewer/libglfw.so.3.5} "$bundleDir/libglfw.so.3"
+      chmod u+w "$bundleDir/libglfw.so.3"
+      touch "$bundleDir/pyviewer-hdr-glfw"
+    '' + lib.optionalString (stdenv.hostPlatform.system == "aarch64-darwin") ''
+      bundleDir="$out/${pythonPackages.python.sitePackages}/imgui_bundle"
+      rm "$bundleDir/libglfw.3.dylib"
+      cp ${../pyviewer/libglfw.3.5.dylib} "$bundleDir/libglfw.3.dylib"
+      touch "$bundleDir/pyviewer-hdr-glfw"
     '';
 
     dependencies = [ pythonPackages.numpy ];
@@ -191,6 +218,7 @@ let
 
     pythonImportsCheck = [
       "pyviewer"
+      "pyviewer.hdr_patch"
       "pyviewer.utils"
     ];
 

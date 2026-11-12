@@ -1,6 +1,6 @@
 import sys
 import shutil
-import site
+from importlib.util import find_spec
 import platform
 import os
 from enum import Enum
@@ -13,14 +13,19 @@ from pathlib import Path
 # (https://github.com/pthom/imgui_bundle/tree/main/external/glfw)
 # => hdr version based on pre-3.5.0, minor version mismatch here, hopefully works fine
 
-# MacOS: replace dylib in site packages
-orig = Path(site.getsitepackages()[0]) / 'imgui_bundle' / 'libglfw.3.dylib'
-backup = orig.with_name('backup_libglfw.3.dylib')
-patched_mac = Path(__file__).parent / 'libglfw.3.5.dylib'
+# Locate the package without importing its native extension (which loads GLFW).
+bundle_spec = find_spec('imgui_bundle')
+assert bundle_spec is not None, 'Could not find imgui-bundle'
+bundle_dir = Path(next(iter(bundle_spec.submodule_search_locations)))
 is_macos = platform.system() == 'Darwin'
+is_linux = platform.system() == 'Linux'
+orig = bundle_dir / ('libglfw.3.dylib' if is_macos else 'libglfw.so.3')
+backup = orig.with_name('backup_libglfw.3.dylib')
+# Nix installs the patched library and this marker at build time.
+preinstalled = orig.with_name('pyviewer-hdr-glfw').is_file()
+patched_mac = Path(__file__).parent / 'libglfw.3.5.dylib'
 
 # Wayland: just set env variable for glfw itself
-is_linux = platform.system() == 'Linux'
 patched_linux = Path(__file__).parent / 'libglfw.so.3.5'
 
 GLFW_FLOATBUFFER = 0x00021011
@@ -33,18 +38,17 @@ class Mode(int, Enum):
 
 CUR_MODE = Mode.UNKNOWN
 
-# Make copy of original
-if is_macos and not backup.is_file():
-    assert orig.is_file(), 'Could not find imgui-bundle\'s original libglfw'
-    shutil.copy2(orig, backup)
-
 def use_patched():
     global CUR_MODE
     if is_macos and CUR_MODE != Mode.PATCHED:
         assert 'glfw' not in sys.modules, 'glfw already imported, cannot patch'
         assert 'imgui_bundle' not in sys.modules, 'imgui_bundle already imported, cannot patch'
-        assert patched_mac.is_file(), 'Could not find patched libglfw'
-        shutil.copy2(patched_mac, orig)
+        if not preinstalled:
+            assert patched_mac.is_file(), 'Could not find patched libglfw'
+            assert orig.is_file(), 'Could not find imgui-bundle\'s original libglfw'
+            if not backup.is_file():
+                shutil.copy2(orig, backup)
+            shutil.copy2(patched_mac, orig)
         import_glfw()
         CUR_MODE = Mode.PATCHED
     elif is_linux and CUR_MODE != Mode.PATCHED:
@@ -56,8 +60,9 @@ def use_original():
     global CUR_MODE
     if is_macos and CUR_MODE != Mode.ORIGINAL:
         assert 'glfw' not in sys.modules, 'glfw already imported, cannot patch'
-        assert backup.is_file(), 'Could not find backed-up libglfw'
-        shutil.copy2(backup, orig)
+        # Preinstalled builds keep the HDR-capable library, also in SDR mode.
+        if not preinstalled and backup.is_file():
+            shutil.copy2(backup, orig)
         CUR_MODE = Mode.ORIGINAL
     elif is_linux and CUR_MODE != Mode.ORIGINAL:
         # Wayland: no-op
@@ -111,12 +116,12 @@ def get_edr_range(glfw_window, gamma=1) -> tuple[float, float, float]:
 
 import ctypes
 def import_glfw():
-    patched = patched_linux if is_linux else orig if is_macos else None # macos: patched from imgui_bundle folder
+    patched = orig if preinstalled or is_macos else patched_linux if is_linux else None
     assert patched.is_file(), 'Could not find patched libglfw'
     os.environ['PYGLFW_LIBRARY'] = patched.as_posix()
     
     import glfw
-    glfw._glfw._name == patched.as_posix(), 'Did not load patched library'
+    assert glfw._glfw._name == patched.as_posix(), 'Did not load patched library'
 
     from .utils import stdio_filter # utils import glfw
     with stdio_filter(err='WARNING: Wayland is not active'):
